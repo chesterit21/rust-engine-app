@@ -1,0 +1,14 @@
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3     # untuk speed (z/s untuk size)
+debug = 0
+panic = "abort"
+
+[build]
+# Untuk kompatibilitas i3 gen-6 (Skylake awal), hindari flag terlalu agresif.
+rustflags = [
+    "-C",
+    "target-cpu=x86-64-v2", # aman untuk CPU modern umum; bisa diganti "native" bila khusus mesin POC
+]

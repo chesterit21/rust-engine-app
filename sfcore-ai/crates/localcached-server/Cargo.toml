@@ -1,0 +1,30 @@
+[package]
+name = "localcached-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+localcached-proto = { path = "../localcached-proto" }
+
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "sync",
+    "time",
+    "signal",
+    "io-util",
+] }
+bytes = "1"
+dashmap = "6"
+parking_lot = "0.12"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+mimalloc = { version = "0.1", optional = true }
+
+[features]
+default = ["alloc_mimalloc"]
+alloc_mimalloc = ["mimalloc"]

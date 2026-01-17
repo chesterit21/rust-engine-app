@@ -1,0 +1,22 @@
+[package]
+name = "sfcore-ai-engine"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+
+[dependencies]
+anyhow = "1"
+thiserror = "1"
+log = "0.4"
+env_logger = "0.11"
+
+# llama.cpp bindings untuk performa tinggi
+llama-cpp-2 = "0.1"
+encoding_rs = "0.8"
+
+# Observability dasar
+sysinfo = "0.30"
+humantime = "2"
+serde = { version = "1.0.228", features = ["derive"] }

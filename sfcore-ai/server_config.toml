@@ -1,0 +1,28 @@
+# SFCore AI Server Configuration
+
+# Path to the GGUF model file
+# Ganti path ini ke lokasi model Anda
+model = "./models/Qwen3-1.7B.gguf"
+
+# Unix Domain Socket path (default: /tmp/sfcore-ai.sock)
+socket = "/tmp/sfcore-ai.sock"
+
+# === Performance Options (Optimized for 4-core CPU) ===
+
+# Decoding threads (50-75% of cores)
+threads = 4
+
+# Prefill/Batch threads (100% of cores usually OK)
+threads_batch = 4
+
+# Context Length (4K default)
+context_length = 4096
+
+# Batch Size (Optimized for Prompt Processing)
+batch_size = 2048
+
+# Micro Batch Size (Optimized for L2 Cache)
+ubatch_size = 1024
+
+# Lock Model in RAM (prevent swapping)
+mlock = true

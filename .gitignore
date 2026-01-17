@@ -1,0 +1,16 @@
+# Build artifacts
+target/
+**/*.rs.bk
+
+# AI Models (Large files)
+sfcore-ai/models/
+**/*.gguf
+**/*.bin
+
+# VS Code / Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store

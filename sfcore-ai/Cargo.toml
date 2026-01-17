@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "crates/engine",
+    "crates/cli",
+    "crates/server",
+    "crates/localcached-proto",
+    "crates/localcached-server",
+    "crates/localcached-client",
+    "crates/localcached-cli",
+]
+resolver = "2"
+
+[patch.crates-io]
+llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }

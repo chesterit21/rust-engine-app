@@ -1,0 +1,10 @@
+[package]
+name = "localcached-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+localcached-proto = { path = "../localcached-proto" }
+tokio = { version = "1", features = ["net", "io-util"] }
+bytes = "1"
+thiserror = "2"
