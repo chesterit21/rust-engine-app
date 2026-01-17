@@ -31,7 +31,7 @@ Semua benchmark dan tuning dilakukan pada mesin dengan spesifikasi berikut:
 
 ### 📚 Dokumentasi
 
-- [**Walkthrough & Benchmark**](../docs/sfcore-ai/readme.md) - Detail perjalanan tuning performa mencapai >8 tok/s di i3 Gen 6.
+- [**Walkthrough & Benchmark**](docs/sfcore-ai/readme.md) - Detail perjalanan tuning performa mencapai >8 tok/s di i3 Gen 6.
 
 ---
 
@@ -58,9 +58,9 @@ Saat ini **HANYA support Linux (dan MacOS/BSD)** karena ketergantungan pada stan
 
 Panduan lengkap mulai dari penggunaan dasar, CLI, hingga integrasi framework:
 
-- [**User Manual (General)**](../docs/sfcore-cache/UserManual.md) - Cara kerja, protokol, dan konsep dasar.
-- [**User Manual (CLI)**](../docs/sfcore-cache/UserManual-Cli.md) - Panduan manajemen server (Start/Stop/Monitor) via Terminal.
-- [**Framework Integration (DI)**](../docs/sfcore-cache/UserManual-DI.md) - **Recommended!** Panduan best-practice Dependency Injection untuk .NET, Laravel, NestJS, Spring Boot, dll.
+- [**User Manual (General)**](docs/sfcore-cache/UserManual.md) - Cara kerja, protokol, dan konsep dasar.
+- [**User Manual (CLI)**](docs/sfcore-cache/UserManual-Cli.md) - Panduan manajemen server (Start/Stop/Monitor) via Terminal.
+- [**Framework Integration (DI)**](docs/sfcore-cache/UserManual-DI.md) - **Recommended!** Panduan best-practice Dependency Injection untuk .NET, Laravel, NestJS, Spring Boot, dll.
 
 ---
 
