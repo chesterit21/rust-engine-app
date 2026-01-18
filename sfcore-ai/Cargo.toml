@@ -7,8 +7,17 @@ members = [
     "crates/localcached-server",
     "crates/localcached-client",
     "crates/localcached-cli",
+    "crates/sfcore-agent-app",
 ]
 resolver = "2"
 
 [patch.crates-io]
 llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }
+
+# Release profile untuk optimasi binary size (Best Practice doc)
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"
+panic = "abort"
+strip = true
