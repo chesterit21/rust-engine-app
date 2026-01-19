@@ -73,7 +73,7 @@ impl UdsClient {
             messages: vec![
                 Message {
                     role: "system".to_string(),
-                    content: "Kamu adalah asisten AI yang membantu.".to_string(),
+                    content: "Kamu adalah Expert Agent Planner. Baca context yang diberikan dengan teliti. Analisis request user. Respond dengan JSON yang berisi teknologi stack breakdown. Gunakan <think> untuk menunjukkan reasoning process.".to_string(),
                 },
                 Message {
                     role: "user".to_string(),

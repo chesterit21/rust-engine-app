@@ -1,0 +1,61 @@
+# Model Configurations for Fine-Tuning on TPU
+
+# Default model untuk training
+default_model: "google/gemma-3-270m-it"
+
+# Model variants yang didukung
+models:
+  gemma3_270m:
+    name: "google/gemma-3-270m-it"
+    description: "Gemma 3 270M Instruct - Small but powerful"
+    max_seq_length: 8192
+    lora:
+      r: 8
+      alpha: 16
+      target_modules:
+        - q_proj
+        - k_proj
+        - v_proj
+        - o_proj
+        - gate_proj
+        - up_proj
+        - down_proj
+
+  gemma3_1b:
+    name: "google/gemma-3-1b-it"
+    description: "Gemma 3 1B Instruct"
+    max_seq_length: 8192
+    lora:
+      r: 16
+      alpha: 32
+      target_modules:
+        - q_proj
+        - k_proj
+        - v_proj
+        - o_proj
+        - gate_proj
+        - up_proj
+        - down_proj
+
+  gemma3_4b:
+    name: "google/gemma-3-4b-it"
+    description: "Gemma 3 4B Instruct"
+    max_seq_length: 8192
+    lora:
+      r: 32
+      alpha: 64
+      target_modules:
+        - q_proj
+        - k_proj
+        - v_proj
+        - o_proj
+        - gate_proj
+        - up_proj
+        - down_proj
+
+# TPU settings
+tpu_settings:
+  colab_tpu_v2:
+    cores: 8
+    suggested_batch_size: 128
+    suggested_gradient_accum: 2

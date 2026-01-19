@@ -14,10 +14,11 @@ resolver = "2"
 [patch.crates-io]
 llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }
 
-# Release profile untuk optimasi binary size (Best Practice doc)
+# Release profile untuk optimasi performa (Performance Improvement doc)
 [profile.release]
 lto = true
 codegen-units = 1
-opt-level = "z"
+opt-level = 3    # Changed from "z" (size) to 3 (speed) for better streaming performance
 panic = "abort"
 strip = true
+

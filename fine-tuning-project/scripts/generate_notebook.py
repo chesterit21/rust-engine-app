@@ -1,0 +1,1313 @@
+#!/usr/bin/env python3
+"""
+Script untuk generate notebook training.ipynb yang lengkap
+dengan step-by-step planning dan enhanced features.
+
+Usage:
+    python scripts/generate_notebook.py
+"""
+
+import json
+from pathlib import Path
+
+
+def create_notebook():
+    """Create the complete training notebook with step-by-step planning."""
+    
+    cells = []
+    
+    # ========== STEP 0: CONNECTION GUIDE ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "# 🚀 Fine-Tuning Qwen3-0.6B dengan Unsloth + QLoRA\n",
+            "\n",
+            "Notebook ini adalah **step-by-step guide** lengkap untuk fine-tuning model.\n",
+            "\n",
+            "---\n",
+            "\n",
+            "## � STEP 0: Cara Koneksi ke Google Colab\n",
+            "\n",
+            "### Opsi A: Langsung di Browser (Recommended untuk Pemula)\n",
+            "\n",
+            "1. **Buka Google Colab**: https://colab.research.google.com\n",
+            "2. **Upload notebook ini**: File → Upload notebook → Pilih file `training.ipynb`\n",
+            "3. **Pilih GPU Runtime**:\n",
+            "   - Klik menu **Runtime** → **Change runtime type**\n",
+            "   - Pilih **Hardware accelerator**: **T4 GPU**\n",
+            "   - Klik **Save**\n",
+            "4. **Jalankan cell satu per satu** dari atas ke bawah\n",
+            "\n",
+            "---\n",
+            "\n",
+            "### Opsi B: Dari VS Code (Advanced)\n",
+            "\n",
+            "**Prerequisites:**\n",
+            "- VS Code dengan extension **Google Colab** (official)\n",
+            "- Extension **Jupyter** dari Microsoft\n",
+            "\n",
+            "**Langkah Koneksi:**\n",
+            "\n",
+            "1. **Install Extension**:\n",
+            "   ```\n",
+            "   Ctrl+Shift+X → Search \"Google Colab\" → Install (Publisher: Google)\n",
+            "   ```\n",
+            "\n",
+            "2. **Buka notebook ini di VS Code**\n",
+            "\n",
+            "3. **Select Kernel** (klik kanan atas):\n",
+            "   - Klik **Select Kernel**\n",
+            "   - Pilih **Google Colab**\n",
+            "   - Pilih **New Colab Server**\n",
+            "\n",
+            "4. **Pilih Hardware**:\n",
+            "   - Pilih **GPU - T4** (free tier)\n",
+            "   - Klik **Connect**\n",
+            "\n",
+            "5. **Authenticate**:\n",
+            "   - Browser akan terbuka untuk login Google\n",
+            "   - Allow akses\n",
+            "   - Copy authorization code\n",
+            "   - Paste di VS Code\n",
+            "\n",
+            "6. **Verify**: Status bar akan menunjukkan **Connected to Colab**\n",
+            "\n",
+            "---\n",
+            "\n",
+            "### ⚠️ Known Issues (VS Code Extension)\n",
+            "\n",
+            "- `drive.mount()` **TIDAK TERSEDIA** - Gunakan `files.upload()` sebagai gantinya\n",
+            "- `userdata.get()` **TIDAK TERSEDIA** - Hardcode secrets sementara\n",
+            "- Session timeout setelah ~90 menit idle\n",
+            "\n",
+            "---"
+        ]
+    })
+    
+    # ========== PLANNING OVERVIEW ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 📋 PLANNING OVERVIEW\n",
+            "\n",
+            "**Total Steps**: 15 Cells\n",
+            "\n",
+            "| Step | Cell | Deskripsi | Waktu |\n",
+            "|------|------|-----------|-------|\n",
+            "| 0 | Koneksi | Connect ke Colab + GPU | ~2 menit |\n",
+            "| 1 | Environment Setup | Setup cache & env vars | ~5 detik |\n",
+            "| 2 | Install Dependencies | Install libraries + Unsloth (T4) | ~2-3 menit |\n",
+            "| 3 | Verify GPU | Check T4 GPU tersedia | ~5 detik |\n",
+            "| 4 | Upload Files | Upload src.zip + dataset | Manual |\n",
+            "| 5 | Configuration | Set model, paths, hyperparams | ~5 detik |\n",
+            "| 6 | Pre-Download Model | Download model ke cache | ~1-2 menit |\n",
+            "| 7 | Load & Split Dataset | Split 80/10/10 | ~30 detik |\n",
+            "| 8 | Load Model + LoRA | Load Qwen3 + apply LoRA | ~1-2 menit |\n",
+            "| 9 | Setup Trainer | Configure training args | ~5 detik |\n",
+            "| 10 | Training | Run training loop | ~30-60 menit |\n",
+            "| 11 | Evaluation | Final validation | ~5 menit |\n",
+            "| 12 | Test Model | Test inference | ~1 menit |\n",
+            "| 13 | Merge LoRA | Merge adapters ke base | ~2-3 menit |\n",
+            "| 14 | Convert GGUF | Convert + Quantize | ~5-10 menit |\n",
+            "| 15 | Download GGUF | Download file GGUF | ~2-5 menit |\n",
+            "\n",
+            "**Total Estimated Time**: ~60-90 menit (tergantung dataset size)\n",
+            "\n",
+            "**Output Akhir**: File `model-q4_k_m.gguf` siap pakai untuk Ollama/LM Studio\n",
+            "\n",
+            "---\n",
+            "\n",
+            "## 📁 File yang Perlu Diupload\n",
+            "\n",
+            "1. **`src.zip`** - Zip dari folder `src/` (modules training)\n",
+            "2. **`train_data.jsonl`** - Dataset dalam format JSONL\n",
+            "\n",
+            "### 📋 Cara Membuat src.zip:\n",
+            "```bash\n",
+            "cd fine-tuning-project\n",
+            "zip -r src.zip src/\n",
+            "```\n",
+            "\n",
+            "---\n",
+            "\n",
+            "**Model**: `Qwen/Qwen3-0.6B`  \n",
+            "**GPU**: Google Colab T4 (16GB)  \n",
+            "**Teknik**: QLoRA (4-bit quantization + LoRA)"
+        ]
+    })
+    
+    # ========== CELL 1: Environment Setup ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 📦 Step 1: Environment Setup\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Setup HuggingFace cache directory\n",
+            "- Set environment variables\n",
+            "- Prevent re-download model tiap session\n",
+            "\n",
+            "⏱️ **Waktu**: ~5 detik"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== ENVIRONMENT SETUP =====\n",
+            "# Jalankan cell ini PERTAMA sebelum install dependencies\n",
+            "\n",
+            "import os\n",
+            "\n",
+            "# Set HuggingFace cache directory (persisten selama session)\n",
+            "os.environ['HF_HOME'] = '/content/hf_cache'\n",
+            "os.environ['TRANSFORMERS_CACHE'] = '/content/hf_cache/transformers'\n",
+            "os.environ['HF_HUB_CACHE'] = '/content/hf_cache/hub'\n",
+            "\n",
+            "# Create cache directories\n",
+            "os.makedirs('/content/hf_cache', exist_ok=True)\n",
+            "os.makedirs('/content/hf_cache/transformers', exist_ok=True)\n",
+            "os.makedirs('/content/hf_cache/hub', exist_ok=True)\n",
+            "\n",
+            "# Create output directories\n",
+            "os.makedirs('/content/outputs', exist_ok=True)\n",
+            "os.makedirs('/content/outputs/checkpoints', exist_ok=True)\n",
+            "\n",
+            "print('✅ Environment configured!')\n",
+            "print(f'📁 HF Cache: {os.environ[\"HF_HOME\"]}')\n",
+            "print(f'📁 Outputs: /content/outputs')"
+        ]
+    })
+    
+    # ========== CELL 2: Install Dependencies ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 📦 Step 2: Install Dependencies\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Install PyTorch, Transformers, PEFT, TRL\n",
+            "- Install Unsloth (optimized untuk T4 GPU)\n",
+            "- Install monitoring tools (tensorboard, pynvml)\n",
+            "\n",
+            "⏱️ **Waktu**: ~2-3 menit\n",
+            "\n",
+            "⚠️ **Note**: Ada warning dependencies, itu normal dan bisa diabaikan."
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== INSTALL CORE DEPENDENCIES =====\n",
+            "!pip install -q torch transformers accelerate bitsandbytes peft trl \\\n",
+            "    datasets sentencepiece protobuf huggingface-hub wandb tensorboard \\\n",
+            "    psutil pynvml pyyaml tqdm numpy\n",
+            "\n",
+            "# ===== INSTALL UNSLOTH (T4 GPU COMPATIBLE) =====\n",
+            "# T4 adalah GPU older architecture (non-Ampere), perlu instalasi khusus\n",
+            "!pip install -q \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"\n",
+            "\n",
+            "# Re-install deps tanpa dependency conflicts (penting untuk T4!)\n",
+            "!pip install -q --no-deps trl peft accelerate bitsandbytes\n",
+            "\n",
+            "# Flash Attention (optional - uncomment jika mau coba)\n",
+            "# !pip install -q flash-attn --no-build-isolation\n",
+            "\n",
+            "print('\\n' + '='*50)\n",
+            "print('✅ All dependencies installed!')\n",
+            "print('✅ Unsloth ready (T4 GPU compatible)')\n",
+            "print('='*50)"
+        ]
+    })
+    
+    # ========== CELL 3: Verify GPU ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 🎮 Step 3: Verify GPU\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Check apakah GPU T4 tersedia\n",
+            "- Verify CUDA dan PyTorch version\n",
+            "\n",
+            "⏱️ **Waktu**: ~5 detik\n",
+            "\n",
+            "⚠️ **Jika GPU tidak tersedia:**\n",
+            "1. Klik menu **Runtime** → **Change runtime type**\n",
+            "2. Pilih **GPU** → **T4**\n",
+            "3. Restart runtime"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== VERIFY GPU =====\n",
+            "import torch\n",
+            "\n",
+            "print('🎮 GPU Verification')\n",
+            "print('='*50)\n",
+            "print(f'PyTorch version: {torch.__version__}')\n",
+            "print(f'CUDA available: {torch.cuda.is_available()}')\n",
+            "\n",
+            "if torch.cuda.is_available():\n",
+            "    print(f'CUDA version: {torch.version.cuda}')\n",
+            "    print(f'Device name: {torch.cuda.get_device_name(0)}')\n",
+            "    print(f'Device count: {torch.cuda.device_count()}')\n",
+            "    print('\\n📊 GPU Details:')\n",
+            "    !nvidia-smi\n",
+            "    print('\\n✅ GPU ready for training!')\n",
+            "else:\n",
+            "    print('\\n⚠️ GPU NOT AVAILABLE!')\n",
+            "    print('👉 Go to: Runtime → Change runtime type → GPU → T4')\n",
+            "    print('👉 Then restart runtime and run from Cell 1')"
+        ]
+    })
+    
+    # ========== CELL 4: Upload Files ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 📤 Step 4: Upload Project Files\n",
+            "\n",
+            "**Upload file**: `upload_package.zip`\n",
+            "\n",
+            "File ini berisi:\n",
+            "- `src.zip` - Modules training\n",
+            "- `train_data.jsonl` - Dataset Anda\n",
+            "- `training.ipynb` - Notebook (opsional)\n",
+            "\n",
+            "⏱️ **Waktu**: ~1-2 menit (tergantung ukuran dataset)\n",
+            "\n",
+            "### 📋 Cara membuat upload_package.zip:\n",
+            "```bash\n",
+            "cd fine-tuning-project\n",
+            "python3 scripts/package_for_upload.py\n",
+            "```"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== UPLOAD PACKAGE =====\n",
+            "from google.colab import files\n",
+            "import zipfile\n",
+            "import os\n",
+            "\n",
+            "print('📤 Upload file: upload_package.zip')\n",
+            "print('='*60)\n",
+            "print('File ini dibuat dengan: python3 scripts/package_for_upload.py')\n",
+            "print()\n",
+            "\n",
+            "uploaded = files.upload()\n",
+            "\n",
+            "# Get uploaded filename\n",
+            "uploaded_file = list(uploaded.keys())[0]\n",
+            "print(f'\\n📦 Uploaded: {uploaded_file}')\n",
+            "\n",
+            "# Extract upload_package.zip\n",
+            "if uploaded_file.endswith('.zip'):\n",
+            "    print(f'\\n📂 Extracting {uploaded_file}...')\n",
+            "    with zipfile.ZipFile(uploaded_file, 'r') as zip_ref:\n",
+            "        zip_ref.extractall('.')\n",
+            "    \n",
+            "    # Check if src.zip exists and extract it\n",
+            "    if os.path.exists('src.zip'):\n",
+            "        print('\\n📂 Extracting src.zip...')\n",
+            "        with zipfile.ZipFile('src.zip', 'r') as zip_ref:\n",
+            "            zip_ref.extractall('.')\n",
+            "        print('   ✅ src/ extracted!')\n",
+            "    \n",
+            "    # Find dataset file\n",
+            "    dataset_files = [f for f in os.listdir('.') if f.endswith('.jsonl')]\n",
+            "    if dataset_files:\n",
+            "        DATASET_PATH = dataset_files[0]\n",
+            "        print(f'   ✅ Dataset found: {DATASET_PATH}')\n",
+            "    else:\n",
+            "        print('   ⚠️ No .jsonl file found!')\n",
+            "        DATASET_PATH = None\n",
+            "    \n",
+            "    print('\\n📁 Extracted files:')\n",
+            "    !ls -la\n",
+            "else:\n",
+            "    print('⚠️ Expected a .zip file!')"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== VERIFY EXTRACTION =====\n",
+            "print('📋 Verification')\n",
+            "print('='*60)\n",
+            "\n",
+            "# Check src/\n",
+            "if os.path.exists('src'):\n",
+            "    print('✅ src/ folder found')\n",
+            "    !ls src/\n",
+            "else:\n",
+            "    print('❌ src/ folder NOT found!')\n",
+            "\n",
+            "# Check dataset\n",
+            "print(f'\\n📊 Dataset: {DATASET_PATH}')\n",
+            "if DATASET_PATH and os.path.exists(DATASET_PATH):\n",
+            "    size_kb = os.path.getsize(DATASET_PATH) / 1024\n",
+            "    print(f'   Size: {size_kb:.1f} KB')\n",
+            "    print('\\n📋 Preview (3 baris pertama):')\n",
+            "    !head -3 {DATASET_PATH}\n",
+            "else:\n",
+            "    print('❌ Dataset NOT found!')"
+        ]
+    })
+    
+    # ========== CELL 5: Configuration ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## ⚙️ Step 5: Configuration\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Set model name dan paths\n",
+            "- Import custom modules dari src/\n",
+            "- Configure hyperparameters\n",
+            "\n",
+            "⏱️ **Waktu**: ~5 detik\n",
+            "\n",
+            "### 🔧 Parameter yang bisa diubah:\n",
+            "- `MODEL_NAME`: Model dari HuggingFace\n",
+            "- `NUM_EPOCHS`: Jumlah epoch training\n",
+            "- `VRAM_GB`: VRAM GPU (T4 = 16GB)"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== CONFIGURATION =====\n",
+            "import sys\n",
+            "import os\n",
+            "import torch\n",
+            "from datasets import load_dataset\n",
+            "from transformers import AutoTokenizer, TrainingArguments, DataCollatorForLanguageModeling\n",
+            "\n",
+            "# Add src to path\n",
+            "sys.path.insert(0, '.')\n",
+            "\n",
+            "# Import custom modules\n",
+            "from src.data.dataset_analyzer import analyze_dataset_and_configure\n",
+            "from src.data.dataset_splitter import split_dataset, analyze_split_distribution\n",
+            "from src.training.mixed_precision import setup_mixed_precision\n",
+            "from src.training.callbacks import (\n",
+            "    VRAMMonitorCallback, \n",
+            "    DynamicConfigCallback,\n",
+            "    EarlyStoppingCallback,\n",
+            "    ValidationLossLoggerCallback,\n",
+            ")\n",
+            "from src.training.metrics import compute_perplexity_only\n",
+            "from src.models.lora_config import get_dynamic_lora_config\n",
+            "\n",
+            "print('✅ Custom modules imported!')\n",
+            "\n",
+            "# ===== KONFIGURASI (EDIT SESUAI KEBUTUHAN) =====\n",
+            "MODEL_NAME = 'Qwen/Qwen3-0.6B'  # Model dari HuggingFace\n",
+            "OUTPUT_DIR = '/content/outputs'  # Directory untuk save model\n",
+            "VRAM_GB = 16.0  # T4 GPU VRAM\n",
+            "NUM_EPOCHS = 3  # Jumlah epoch training\n",
+            "\n",
+            "# Dataset path (dari upload sebelumnya)\n",
+            "# DATASET_PATH sudah di-set di cell sebelumnya\n",
+            "\n",
+            "print(f'\\n📋 Configuration:')\n",
+            "print(f'   Model: {MODEL_NAME}')\n",
+            "print(f'   Output: {OUTPUT_DIR}')\n",
+            "print(f'   VRAM: {VRAM_GB}GB')\n",
+            "print(f'   Epochs: {NUM_EPOCHS}')\n",
+            "print(f'   Dataset: {DATASET_PATH}')"
+        ]
+    })
+    
+    # ========== CELL 6: Pre-Download Model ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 📥 Step 6: Pre-Download Model (Optional)\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Download model ke cache sebelum loading\n",
+            "- Memastikan download sukses sebelum training\n",
+            "- Skip jika model sudah ada di cache\n",
+            "\n",
+            "⏱️ **Waktu**: ~1-2 menit (pertama kali)\n",
+            "\n",
+            "⚠️ **Skip cell ini** jika sudah pernah download model sebelumnya."
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== PRE-DOWNLOAD MODEL (OPTIONAL) =====\n",
+            "# Uncomment untuk pre-download model ke cache\n",
+            "\n",
+            "from huggingface_hub import snapshot_download\n",
+            "import os\n",
+            "\n",
+            "print(f'📥 Pre-downloading model: {MODEL_NAME}')\n",
+            "print('='*50)\n",
+            "\n",
+            "try:\n",
+            "    cache_path = snapshot_download(\n",
+            "        repo_id=MODEL_NAME,\n",
+            "        cache_dir=os.environ.get('HF_HUB_CACHE', '/content/hf_cache/hub'),\n",
+            "        ignore_patterns=['*.md', '*.txt', '*.rst']  # Skip docs\n",
+            "    )\n",
+            "    print(f'\\n✅ Model cached to: {cache_path}')\n",
+            "except Exception as e:\n",
+            "    print(f'\\n⚠️ Pre-download skipped: {e}')\n",
+            "    print('💡 Model akan di-download otomatis saat loading')"
+        ]
+    })
+    
+    # ========== CELL 7: Load & Split Dataset ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 📊 Step 7: Load & Split Dataset\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Load dataset dari JSONL file\n",
+            "- Split menjadi Train/Validation/Test (80/10/10)\n",
+            "- Analyze token distribution\n",
+            "\n",
+            "⏱️ **Waktu**: ~30 detik (tergantung ukuran dataset)\n",
+            "\n",
+            "### 📋 Hasil Split:\n",
+            "- **Train (80%)**: Untuk training\n",
+            "- **Validation (10%)**: Untuk eval setiap N steps\n",
+            "- **Test (10%)**: JANGAN SENTUH sampai training selesai!"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== LOAD & SPLIT DATASET =====\n",
+            "print(f'📥 Loading dataset: {DATASET_PATH}')\n",
+            "print('='*50)\n",
+            "\n",
+            "# Load dataset\n",
+            "full_dataset = load_dataset('json', data_files={'train': DATASET_PATH}, split='train')\n",
+            "print(f'Total samples: {len(full_dataset):,}')\n",
+            "\n",
+            "# Split dataset (80/10/10)\n",
+            "dataset_dict = split_dataset(\n",
+            "    full_dataset,\n",
+            "    train_ratio=0.80,\n",
+            "    val_ratio=0.10,\n",
+            "    test_ratio=0.10,\n",
+            "    seed=42\n",
+            ")\n",
+            "\n",
+            "# Save test set (JANGAN SENTUH sampai training selesai!)\n",
+            "test_dataset_path = f'{OUTPUT_DIR}/test_dataset.json'\n",
+            "dataset_dict['test'].to_json(test_dataset_path)\n",
+            "print(f'\\n✅ Test dataset saved: {test_dataset_path}')\n",
+            "print('⚠️ DO NOT use test set until training is fully complete!')"
+        ]
+    })
+    
+    # ========== CELL 8: Setup Mixed Precision & Load Tokenizer ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 🔧 Step 8: Load Model + Apply LoRA\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Setup mixed precision (bf16/fp16)\n",
+            "- Load tokenizer dan analyze dataset\n",
+            "- Load model dengan Unsloth (2x faster)\n",
+            "- Apply LoRA adapters\n",
+            "\n",
+            "⏱️ **Waktu**: ~1-2 menit\n",
+            "\n",
+            "### 🧠 Dynamic Config:\n",
+            "Batch size dan gradient accumulation akan auto-adjust berdasarkan token length!"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== SETUP MIXED PRECISION =====\n",
+            "bf16_support, fp16_support, precision_mode = setup_mixed_precision()\n",
+            "print(f'📊 Precision mode: {precision_mode}')\n",
+            "\n",
+            "# ===== LOAD TOKENIZER & ANALYZE DATASET =====\n",
+            "print(f'\\n📝 Loading tokenizer: {MODEL_NAME}')\n",
+            "tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)\n",
+            "\n",
+            "if tokenizer.pad_token is None:\n",
+            "    tokenizer.add_special_tokens({'pad_token': '[PAD]'})\n",
+            "    print('   Added [PAD] token')\n",
+            "\n",
+            "# Analyze dataset dan generate dynamic config\n",
+            "train_dataset, dynamic_config = analyze_dataset_and_configure(\n",
+            "    dataset_dict['train'], \n",
+            "    tokenizer, \n",
+            "    max_length=32768, \n",
+            "    vram_gb=VRAM_GB\n",
+            ")\n",
+            "\n",
+            "# Analyze distribution per split\n",
+            "analyze_split_distribution(dataset_dict, tokenizer)"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== LOAD MODEL DENGAN UNSLOTH =====\n",
+            "from unsloth import FastLanguageModel\n",
+            "\n",
+            "print(f'🔥 Loading model: {MODEL_NAME}')\n",
+            "print('='*50)\n",
+            "\n",
+            "model, tokenizer = FastLanguageModel.from_pretrained(\n",
+            "    model_name=MODEL_NAME,\n",
+            "    max_seq_length=dynamic_config['max_seq_length'],\n",
+            "    dtype=torch.bfloat16 if bf16_support else None,\n",
+            "    load_in_4bit=True,\n",
+            "    device_map='auto'\n",
+            ")\n",
+            "\n",
+            "# Resize embeddings jika menambah token\n",
+            "model.resize_token_embeddings(len(tokenizer))\n",
+            "\n",
+            "print('\\n✅ Model loaded with Unsloth!')"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== APPLY LoRA =====\n",
+            "lora_config = get_dynamic_lora_config(MODEL_NAME, dynamic_config['max_seq_length'])\n",
+            "\n",
+            "model = FastLanguageModel.get_peft_model(\n",
+            "    model,\n",
+            "    r=lora_config['r'],\n",
+            "    lora_alpha=lora_config['lora_alpha'],\n",
+            "    target_modules=lora_config['target_modules'],\n",
+            "    lora_dropout=lora_config['lora_dropout'],\n",
+            "    bias=lora_config['bias'],\n",
+            "    use_gradient_checkpointing=dynamic_config['use_gradient_checkpointing'],\n",
+            "    use_rslora=lora_config['use_rslora'],\n",
+            "    random_state=3407\n",
+            ")\n",
+            "\n",
+            "print('\\n✅ LoRA applied!')\n",
+            "print(f'   r: {lora_config[\"r\"]}')\n",
+            "print(f'   alpha: {lora_config[\"lora_alpha\"]}')\n",
+            "print(f'   Gradient checkpointing: {dynamic_config[\"use_gradient_checkpointing\"]}')"
+        ]
+    })
+    
+    # ========== CELL 9: Setup Trainer ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 🎯 Step 9: Setup Trainer\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Configure training arguments\n",
+            "- Setup callbacks (VRAM monitor, early stopping)\n",
+            "- Create SFTTrainer\n",
+            "\n",
+            "⏱️ **Waktu**: ~5 detik\n",
+            "\n",
+            "### 📋 Training Features:\n",
+            "- ✅ Evaluation setiap 100 steps\n",
+            "- ✅ Auto-save checkpoints\n",
+            "- ✅ VRAM monitoring\n",
+            "- ✅ Early stopping"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== TRAINING ARGUMENTS =====\n",
+            "data_collator = DataCollatorForLanguageModeling(\n",
+            "    tokenizer=tokenizer,\n",
+            "    mlm=False,\n",
+            "    pad_to_multiple_of=8\n",
+            ")\n",
+            "\n",
+            "training_args = TrainingArguments(\n",
+            "    output_dir=OUTPUT_DIR,\n",
+            "    per_device_train_batch_size=dynamic_config['per_device_train_batch_size'],\n",
+            "    gradient_accumulation_steps=dynamic_config['gradient_accumulation_steps'],\n",
+            "    \n",
+            "    # Learning rate & schedule\n",
+            "    learning_rate=2e-5,\n",
+            "    num_train_epochs=NUM_EPOCHS,\n",
+            "    lr_scheduler_type='cosine',\n",
+            "    warmup_ratio=0.1,\n",
+            "    \n",
+            "    # Mixed precision\n",
+            "    bf16=bf16_support,\n",
+            "    fp16=fp16_support,\n",
+            "    \n",
+            "    # Optimizer\n",
+            "    optim='paged_adamw_8bit',\n",
+            "    weight_decay=0.01,\n",
+            "    max_grad_norm=1.0,\n",
+            "    \n",
+            "    # Gradient checkpointing\n",
+            "    gradient_checkpointing=dynamic_config['use_gradient_checkpointing'],\n",
+            "    gradient_checkpointing_kwargs={'use_reentrant': False},\n",
+            "    \n",
+            "    # Evaluation\n",
+            "    eval_strategy='steps',\n",
+            "    eval_steps=100,\n",
+            "    per_device_eval_batch_size=2,\n",
+            "    load_best_model_at_end=True,\n",
+            "    metric_for_best_model='eval_loss',\n",
+            "    greater_is_better=False,\n",
+            "    \n",
+            "    # Logging & Saving\n",
+            "    logging_steps=10,\n",
+            "    save_strategy='steps',\n",
+            "    save_steps=100,\n",
+            "    save_total_limit=3,\n",
+            "    report_to=['tensorboard'],\n",
+            "    \n",
+            "    # Performance\n",
+            "    dataloader_num_workers=2,\n",
+            "    dataloader_pin_memory=True,\n",
+            ")\n",
+            "\n",
+            "print('✅ Training arguments configured!')\n",
+            "print(f'   Batch size: {dynamic_config[\"per_device_train_batch_size\"]}')\n",
+            "print(f'   Gradient accumulation: {dynamic_config[\"gradient_accumulation_steps\"]}')\n",
+            "print(f'   Effective batch: {dynamic_config[\"effective_batch_size\"]}')"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== SETUP CALLBACKS =====\n",
+            "callbacks = [\n",
+            "    VRAMMonitorCallback(threshold_percent=95.0),\n",
+            "    DynamicConfigCallback(dynamic_config),\n",
+            "    EarlyStoppingCallback(patience=5, min_delta=0.001),\n",
+            "    ValidationLossLoggerCallback(),\n",
+            "]\n",
+            "\n",
+            "print('✅ Callbacks configured:')\n",
+            "for cb in callbacks:\n",
+            "    print(f'   - {cb.__class__.__name__}')"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== CREATE TRAINER =====\n",
+            "from trl import SFTTrainer\n",
+            "\n",
+            "trainer = SFTTrainer(\n",
+            "    model=model,\n",
+            "    args=training_args,\n",
+            "    train_dataset=dataset_dict['train'],\n",
+            "    eval_dataset=dataset_dict['validation'],\n",
+            "    data_collator=data_collator,\n",
+            "    callbacks=callbacks,\n",
+            "    compute_metrics=compute_perplexity_only,\n",
+            "    dataset_text_field='text',\n",
+            "    max_seq_length=dynamic_config['max_seq_length'],\n",
+            "    packing=False,\n",
+            ")\n",
+            "\n",
+            "print('\\n✅ Trainer created!')\n",
+            "print('\\n📋 Ready for training. Run next cell to start!')"
+        ]
+    })
+    
+    # ========== CELL 10: Training ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 🚀 Step 10: Start Training\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Jalankan training loop\n",
+            "- Log metrics ke TensorBoard\n",
+            "- Auto-save checkpoints\n",
+            "\n",
+            "⏱️ **Waktu**: ~30-60 menit (tergantung dataset)\n",
+            "\n",
+            "### 📊 Monitor:\n",
+            "- Loss akan turun secara bertahap\n",
+            "- Eval loss harus track training loss\n",
+            "- VRAM usage akan di-monitor otomatis"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== START TRAINING! =====\n",
+            "print('\\n' + '='*80)\n",
+            "print('🚀 STARTING TRAINING')\n",
+            "print('='*80)\n",
+            "print(f'\\n📋 Training config:')\n",
+            "print(f'   Epochs: {NUM_EPOCHS}')\n",
+            "print(f'   Train samples: {len(dataset_dict[\"train\"]):,}')\n",
+            "print(f'   Eval samples: {len(dataset_dict[\"validation\"]):,}')\n",
+            "print(f'   Max seq length: {dynamic_config[\"max_seq_length\"]}')\n",
+            "print('\\n' + '-'*80)\n",
+            "\n",
+            "train_result = trainer.train()\n",
+            "\n",
+            "print('\\n' + '='*80)\n",
+            "print('✅ TRAINING COMPLETED!')\n",
+            "print('='*80)"
+        ]
+    })
+    
+    # ========== CELL 11: Evaluation ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 📊 Step 11: Final Evaluation\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Run final validation\n",
+            "- Calculate perplexity\n",
+            "- Display training stats\n",
+            "\n",
+            "⏱️ **Waktu**: ~5 menit"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== FINAL VALIDATION =====\n",
+            "print('📊 Running final validation...')\n",
+            "val_results = trainer.evaluate()\n",
+            "\n",
+            "print(f'\\n' + '='*60)\n",
+            "print(f'📊 FINAL VALIDATION RESULTS')\n",
+            "print(f'='*60)\n",
+            "print(f\"   Validation Loss: {val_results.get('eval_loss', 'N/A'):.4f}\")\n",
+            "print(f\"   Validation Perplexity: {val_results.get('eval_perplexity', 'N/A')}\")\n",
+            "print(f'='*60)\n",
+            "\n",
+            "print(f'\\n📊 Training Stats:')\n",
+            "print(f'   Total steps: {train_result.global_step}')\n",
+            "print(f'   Training loss: {train_result.training_loss:.4f}')"
+        ]
+    })
+    
+    # ========== CELL 12: Test Model ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 🧪 Step 12: Test Model\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Test inference dengan prompt sample\n",
+            "- Verify model berfungsi dengan benar\n",
+            "- Cek kualitas output\n",
+            "\n",
+            "⏱️ **Waktu**: ~1 menit"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== TEST INFERENCE =====\n",
+            "print('🧪 Testing model inference...')\n",
+            "print('='*60)\n",
+            "\n",
+            "# Switch to inference mode\n",
+            "FastLanguageModel.for_inference(model)\n",
+            "\n",
+            "# Test prompts\n",
+            "test_prompts = [\n",
+            "    'Buatkan aplikasi todo list sederhana',\n",
+            "    'Saya butuh API untuk e-commerce',\n",
+            "]\n",
+            "\n",
+            "for i, prompt in enumerate(test_prompts, 1):\n",
+            "    print(f'\\n--- Test {i} ---')\n",
+            "    print(f'📝 Prompt: {prompt}')\n",
+            "    \n",
+            "    inputs = tokenizer(prompt, return_tensors='pt').to(model.device)\n",
+            "    outputs = model.generate(\n",
+            "        **inputs, \n",
+            "        max_new_tokens=300, \n",
+            "        do_sample=True, \n",
+            "        temperature=0.7,\n",
+            "        top_p=0.9\n",
+            "    )\n",
+            "    response = tokenizer.decode(outputs[0], skip_special_tokens=True)\n",
+            "    \n",
+            "    print(f'🤖 Response:')\n",
+            "    print(response[:500] + '...' if len(response) > 500 else response)\n",
+            "\n",
+            "print('\\n' + '='*60)\n",
+            "print('✅ Model test completed!')"
+        ]
+    })
+    
+    # ========== CELL 13: Save & Merge LoRA ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 💾 Step 13: Save & Merge LoRA Adapters\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Save model dengan LoRA adapters\n",
+            "- Merge LoRA ke base model (untuk GGUF conversion)\n",
+            "\n",
+            "⏱️ **Waktu**: ~2-3 menit\n",
+            "\n",
+            "⚠️ **Note**: Merge diperlukan untuk convert ke GGUF"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== SAVE MODEL DENGAN LORA =====\n",
+            "FINAL_MODEL_PATH = f'{OUTPUT_DIR}/final_model'\n",
+            "MERGED_MODEL_PATH = f'{OUTPUT_DIR}/merged_model'\n",
+            "\n",
+            "print('💾 Saving model with LoRA adapters...')\n",
+            "trainer.save_model(FINAL_MODEL_PATH)\n",
+            "tokenizer.save_pretrained(FINAL_MODEL_PATH)\n",
+            "print(f'   ✅ LoRA model saved to: {FINAL_MODEL_PATH}')\n",
+            "\n",
+            "# Merge LoRA ke base model\n",
+            "print('\\n🔀 Merging LoRA adapters to base model...')\n",
+            "\n",
+            "# VOCAB FIX: Qwen3-0.6B base vocab is 151669, but Unsloth pads to 151936.\n",
+            "if '0.6B' in MODEL_NAME:\n",
+            "    print('🔧 Applying Vocab Fix: Resizing to 151669...')\n",
+            "    model.resize_token_embeddings(151669)\n",
+            "\n",
+            "model.save_pretrained_merged(\n",
+            "    MERGED_MODEL_PATH, \n",
+            "    tokenizer, \n",
+            "    save_method='merged_16bit'\n",
+            ")\n",
+            "print(f'   ✅ Merged model saved to: {MERGED_MODEL_PATH}')\n",
+            "\n",
+            "print('\\n📁 Merged model files:')\n",
+            "!ls -lh {MERGED_MODEL_PATH}"
+        ]
+    })
+    
+    # ========== CELL 14: Convert to GGUF ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 🔄 Step 14: Convert to GGUF\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Install llama.cpp\n",
+            "- Convert model ke format GGUF\n",
+            "- Quantize ke Q4_K_M (optimal size/quality)\n",
+            "\n",
+            "⏱️ **Waktu**: ~5-10 menit\n",
+            "\n",
+            "### 📋 Quantization Options:\n",
+            "| Type | Size | Quality | Use Case |\n",
+            "|------|------|---------|----------|\n",
+            "| Q4_K_M | ~400MB | Bagus | ✅ **Recommended** |\n",
+            "| Q5_K_M | ~500MB | Lebih baik | High quality |\n",
+            "| Q8_0 | ~700MB | Terbaik | Maximum quality |"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== INSTALL LLAMA.CPP =====\n",
+            "print('📦 Installing llama.cpp...')\n",
+            "print('='*60)\n",
+            "\n",
+            "# Clone llama.cpp\n",
+            "!git clone --depth 1 https://github.com/ggerganov/llama.cpp /content/llama.cpp\n",
+            "\n",
+            "# Install Python requirements\n",
+            "!pip install -q /content/llama.cpp\n",
+            "\n",
+            "print('\\n✅ llama.cpp installed!')"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== CONVERT TO GGUF =====\n",
+            "import os\n",
+            "\n",
+            "GGUF_OUTPUT = f'{OUTPUT_DIR}/model.gguf'\n",
+            "GGUF_QUANTIZED = f'{OUTPUT_DIR}/model-q4_k_m.gguf'\n",
+            "\n",
+            "print('🔄 Converting to GGUF format...')\n",
+            "print('='*60)\n",
+            "\n",
+            "# Convert to GGUF (f16)\n",
+            "!python /content/llama.cpp/convert_hf_to_gguf.py \\\n",
+            "    {MERGED_MODEL_PATH} \\\n",
+            "    --outfile {GGUF_OUTPUT} \\\n",
+            "    --outtype f16\n",
+            "\n",
+            "if os.path.exists(GGUF_OUTPUT):\n",
+            "    size_mb = os.path.getsize(GGUF_OUTPUT) / (1024 * 1024)\n",
+            "    print(f'\\n✅ GGUF created: {GGUF_OUTPUT}')\n",
+            "    print(f'   Size: {size_mb:.1f} MB')\n",
+            "else:\n",
+            "    print('❌ GGUF conversion failed!')"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== QUANTIZE TO Q4_K_M =====\n",
+            "print('📉 Quantizing to Q4_K_M...')\n",
+            "print('='*60)\n",
+            "\n",
+            "# Build llama.cpp quantize tool\n",
+            "!cd /content/llama.cpp && make -j quantize\n",
+            "\n",
+            "# Quantize\n",
+            "!/content/llama.cpp/llama-quantize {GGUF_OUTPUT} {GGUF_QUANTIZED} Q4_K_M\n",
+            "\n",
+            "if os.path.exists(GGUF_QUANTIZED):\n",
+            "    size_mb = os.path.getsize(GGUF_QUANTIZED) / (1024 * 1024)\n",
+            "    print(f'\\n✅ Quantized GGUF created: {GGUF_QUANTIZED}')\n",
+            "    print(f'   Size: {size_mb:.1f} MB')\n",
+            "    print(f'\\n📊 Size comparison:')\n",
+            "    !ls -lh {OUTPUT_DIR}/*.gguf\n",
+            "else:\n",
+            "    print('❌ Quantization failed! Using unquantized version.')\n",
+            "    GGUF_QUANTIZED = GGUF_OUTPUT"
+        ]
+    })
+    
+    # ========== CELL 15: Download GGUF ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 📥 Step 15: Download GGUF Model\n",
+            "\n",
+            "**Apa yang dilakukan:**\n",
+            "- Download file GGUF yang sudah di-quantize\n",
+            "- File siap digunakan dengan llama.cpp, Ollama, LM Studio, dll\n",
+            "\n",
+            "⏱️ **Waktu**: ~2-5 menit (tergantung ukuran)\n",
+            "\n",
+            "### 📋 Setelah Download:\n",
+            "1. File akan masuk ke folder **Downloads**\n",
+            "2. Pindahkan ke folder `outputs/` di project lokal\n",
+            "3. Jalankan dengan Ollama/LM Studio"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== DOWNLOAD GGUF =====\n",
+            "from google.colab import files\n",
+            "import os\n",
+            "\n",
+            "print('📥 Preparing download...')\n",
+            "print('='*60)\n",
+            "\n",
+            "# Check which file to download\n",
+            "if os.path.exists(GGUF_QUANTIZED):\n",
+            "    download_file = GGUF_QUANTIZED\n",
+            "    print(f'📦 Downloading quantized model (Q4_K_M)...')\n",
+            "else:\n",
+            "    download_file = GGUF_OUTPUT\n",
+            "    print(f'📦 Downloading unquantized model (F16)...')\n",
+            "\n",
+            "size_mb = os.path.getsize(download_file) / (1024 * 1024)\n",
+            "print(f'   File: {os.path.basename(download_file)}')\n",
+            "print(f'   Size: {size_mb:.1f} MB')\n",
+            "print('\\n⏳ Starting download (this may take a few minutes)...\\n')\n",
+            "\n",
+            "files.download(download_file)\n",
+            "\n",
+            "print('\\n' + '='*60)\n",
+            "print('✅ GGUF MODEL DOWNLOADED!')\n",
+            "print('='*60)\n",
+            "print('\\n📋 Cara menggunakan:')\n",
+            "print('   1. Ollama: ollama create mymodel -f Modelfile')\n",
+            "print('   2. LM Studio: Import model dari file GGUF')\n",
+            "print('   3. llama.cpp: ./llama-cli -m model-q4_k_m.gguf -p \"prompt\"')"
+        ]
+    })
+    
+    # ========== CELL 16: Optional - Download LoRA Only ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 📦 (Optional) Download LoRA Adapters Only\n",
+            "\n",
+            "Jika ingin download LoRA adapters saja (lebih kecil, ~50MB):"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== DOWNLOAD LORA ONLY (OPTIONAL) =====\n",
+            "# Uncomment jika ingin download LoRA adapters saja\n",
+            "\n",
+            "# from google.colab import files\n",
+            "# import shutil\n",
+            "\n",
+            "# print('📦 Creating LoRA zip archive...')\n",
+            "# shutil.make_archive('lora_adapters', 'zip', FINAL_MODEL_PATH)\n",
+            "\n",
+            "# print('📥 Downloading LoRA adapters...')\n",
+            "# files.download('lora_adapters.zip')\n",
+            "\n",
+            "# print('✅ LoRA adapters downloaded!')\n",
+            "# print('💡 Untuk menggunakan, merge dengan base model di local')"
+        ]
+    })
+    
+    # ========== CELL 17: Upload to HuggingFace ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 🌐 (Optional) Upload to HuggingFace Hub"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== UPLOAD TO HUGGINGFACE (OPTIONAL) =====\n",
+            "# Uncomment untuk upload ke HuggingFace Hub\n",
+            "\n",
+            "# from huggingface_hub import login, HfApi\n",
+            "\n",
+            "# # Login dengan token Anda\n",
+            "# HF_TOKEN = 'hf_your_token_here'  # Ganti dengan token Anda\n",
+            "# login(token=HF_TOKEN)\n",
+            "\n",
+            "# # Upload GGUF file\n",
+            "# api = HfApi()\n",
+            "# REPO_NAME = 'your-username/qwen3-0.6b-finetuned-gguf'\n",
+            "\n",
+            "# api.create_repo(repo_id=REPO_NAME, exist_ok=True)\n",
+            "# api.upload_file(\n",
+            "#     path_or_fileobj=GGUF_QUANTIZED,\n",
+            "#     path_in_repo='model-q4_k_m.gguf',\n",
+            "#     repo_id=REPO_NAME\n",
+            "# )\n",
+            "\n",
+            "# print(f'✅ GGUF uploaded to: https://huggingface.co/{REPO_NAME}')"
+        ]
+    })
+    
+    # ========== CLEANUP ==========
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "---\n",
+            "## 🔌 Cleanup & Disconnect"
+        ]
+    })
+    
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": [
+            "# ===== CLEANUP =====\n",
+            "import gc\n",
+            "gc.collect()\n",
+            "torch.cuda.empty_cache()\n",
+            "\n",
+            "print('✅ Cache cleared!')\n",
+            "print('\\n' + '='*60)\n",
+            "print('🎉 TRAINING & EXPORT COMPLETE!')\n",
+            "print('='*60)\n",
+            "print('\\n📋 Summary:')\n",
+            "print(f'   Model: {MODEL_NAME}')\n",
+            "print(f'   Training epochs: {NUM_EPOCHS}')\n",
+            "print(f'   GGUF file: model-q4_k_m.gguf')\n",
+            "print('\\n📌 Next Steps:')\n",
+            "print('   1. Pindahkan file GGUF ke folder outputs/ lokal')\n",
+            "print('   2. Import ke Ollama/LM Studio')\n",
+            "print('   3. Test dengan prompts')\n",
+            "\n",
+            "# Terminate runtime (uncomment untuk menggunakan)\n",
+            "# from google.colab import runtime\n",
+            "# runtime.unassign()"
+        ]
+    })
+    
+    # ========== CREATE NOTEBOOK ==========
+    notebook = {
+        "cells": cells,
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3"
+            },
+            "language_info": {
+                "name": "python",
+                "version": "3.10.0"
+            }
+        },
+        "nbformat": 4,
+        "nbformat_minor": 4
+    }
+    
+    return notebook
+
+
+def main():
+    """Generate the notebook file."""
+    notebook = create_notebook()
+    
+    # Output path
+    output_path = Path(__file__).parent.parent / "notebooks" / "training.ipynb"
+    
+    # Write notebook
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(notebook, f, indent=1, ensure_ascii=False)
+    
+    print(f"✅ Notebook generated: {output_path}")
+    print(f"📊 Total cells: {len(notebook['cells'])}")
+
+
+if __name__ == "__main__":
+    main()

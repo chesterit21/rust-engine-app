@@ -32,9 +32,8 @@ pub fn render_dock(
     let window_width = ctx.screen_rect().width();
     let dock_x = window_width - DOCK_WIDTH;
 
-    let area_response = egui::Area::new(egui::Id::new("dock_bar"))
+    let _area_response = egui::Area::new(egui::Id::new("dock_bar"))
         .fixed_pos(egui::pos2(dock_x, 0.0))
-        .sense(Sense::drag())
         .show(ctx, |ui| {
             // DRAG TO MOVE WINDOW
             let response = ui.interact(
@@ -43,12 +42,11 @@ pub fn render_dock(
                 Sense::drag(),
             );
 
+            if response.drag_started() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
             if response.dragged() {
                 ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
-                let delta = response.drag_delta();
-                if delta != Vec2::ZERO {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                }
             } else if response.hovered() {
                 ui.ctx().set_cursor_icon(CursorIcon::Grab);
             }

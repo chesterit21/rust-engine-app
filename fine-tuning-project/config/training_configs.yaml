@@ -1,0 +1,67 @@
+# Training Configuration Templates
+
+# Default training configuration
+default:
+  # Model
+  model_name: "Qwen/Qwen3-0.6B"
+  load_in_4bit: true
+  
+  # Dataset
+  dataset_format: "jsonl"  # Format: JSONL
+  text_field: "text"       # Field yang berisi teks untuk training
+  
+  # Training hyperparameters
+  learning_rate: 2.0e-5
+  num_train_epochs: 3
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.1
+  
+  # Optimizer
+  optim: "paged_adamw_8bit"
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  
+  # Logging & Saving
+  logging_steps: 10
+  save_strategy: "steps"
+  save_steps: 100
+  save_total_limit: 3
+  
+  # Evaluation
+  evaluation_strategy: "steps"
+  eval_steps: 100
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  
+  # Early stopping
+  early_stopping_patience: 5
+  early_stopping_min_delta: 0.001
+  
+  # Data split
+  train_ratio: 0.80
+  val_ratio: 0.10
+  test_ratio: 0.10
+  
+  # Output
+  output_dir: "./outputs"
+
+# Colab T4 16GB optimized
+colab_t4:
+  # Inherit from default
+  _extends: default
+  
+  # VRAM optimizations
+  vram_gb: 16.0
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 8  # Effective batch = 16
+  gradient_checkpointing: true
+  
+  # Mixed precision
+  bf16: false  # T4 tidak support BF16
+  fp16: true   # Gunakan FP16
+  
+  # Performance
+  dataloader_num_workers: 2
+  dataloader_pin_memory: true
+  torch_compile: false  # Disable untuk kompatibilitas

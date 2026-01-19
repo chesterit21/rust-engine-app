@@ -1,0 +1,30 @@
+# Fine-Tuning Project Dependencies
+# For Google Colab T4 16GB with Qwen3-0.6B
+
+# Core
+torch>=2.3.0
+transformers>=4.41.0
+accelerate>=0.31.0
+bitsandbytes>=0.43.0
+peft>=0.11.0
+trl>=0.9.0
+datasets>=2.20.0
+sentencepiece>=0.2.0
+protobuf>=3.20.0
+huggingface-hub>=0.23.0
+
+# Flash Attention (install manual di Colab)
+# flash-attn>=2.5.9 --no-build-isolation
+
+# Unsloth (install dari GitHub di Colab)
+# pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"
+
+# Logging & Monitoring
+wandb>=0.17.0
+tensorboard>=2.17.0
+psutil>=5.9.0
+pynvml>=11.5.0
+
+# Utilities
+pyyaml>=6.0.0
+tqdm>=4.66.0

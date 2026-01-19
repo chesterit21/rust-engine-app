@@ -1,0 +1,51 @@
+# Model Configurations for Fine-Tuning
+
+# Default model untuk training
+default_model: "Qwen/Qwen3-0.6B"
+
+# Model variants yang didukung
+models:
+  qwen3_0.6b:
+    name: "Qwen/Qwen3-0.6B"
+    # 4-bit quantized version (jika tersedia di HuggingFace)
+    quantized: "unsloth/Qwen3-0.6B-bnb-4bit"
+    max_seq_length: 32768
+    lora:
+      r: 8
+      alpha: 16
+      target_modules:
+        - q_proj
+        - k_proj
+        - v_proj
+        - o_proj
+        - gate_proj
+        - up_proj
+        - down_proj
+    
+  qwen2.5_coder_1.5b:
+    name: "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    quantized: "unsloth/Qwen2.5-Coder-1.5B-Instruct-bnb-4bit"
+    max_seq_length: 32768
+    lora:
+      r: 16
+      alpha: 32
+      target_modules:
+        - q_proj
+        - k_proj
+        - v_proj
+        - o_proj
+        - gate_proj
+        - up_proj
+        - down_proj
+
+# VRAM settings per GPU
+vram_settings:
+  t4_16gb:
+    vram_gb: 16.0
+    max_batch_size: 4
+    suggested_gradient_accum: 4
+  
+  l4_24gb:
+    vram_gb: 24.0
+    max_batch_size: 8
+    suggested_gradient_accum: 2

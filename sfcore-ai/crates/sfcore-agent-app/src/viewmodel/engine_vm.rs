@@ -59,8 +59,8 @@ impl EngineViewModel {
             status: ServerStatus::Stopped,
             server_process: None,
             chat_input: String::new(),
-            messages: Vec::new(),
-            logs: Vec::new(),
+            messages: Vec::with_capacity(100),  // PERFORMANCE: Pre-allocate
+            logs: Vec::with_capacity(50),       // PERFORMANCE: Pre-allocate
             is_loading: false,
             current_metrics: None,
             event_tx,
@@ -233,16 +233,36 @@ impl EngineViewModel {
                 client.stream_chat(&prompt, 1024, tx_stream).await
             });
             
-            // let _ = tx_event.send(AppEvent::EngineResponse("🔍 [DEBUG] Stream request sent, consuming chunks...".to_string()));
+            // PERFORMANCE IMPROVEMENT: Token batching
+            // Buffer tokens and send in batches to reduce UI updates
+            let mut buffer = String::with_capacity(256);
+            let mut last_update = Instant::now();
+            let batch_interval = Duration::from_millis(50); // 20 updates/sec max
             
-            // Consume stream chunks IN PARALLEL with streaming
             let mut chunk_count = 0;
             while let Some(chunk) = rx_stream.recv().await {
                 chunk_count += 1;
-                // Log each chunk for debugging
-                // let _ = tx_event_stream.send(AppEvent::EngineResponse(format!("🔍 [DEBUG] Chunk #{}: {} chars", chunk_count, chunk.len())));
-                // Forward actual content to UI
-                let _ = tx_event_stream.send(AppEvent::EngineResponse(chunk));
+                buffer.push_str(&chunk);
+                
+                // Send batch if:
+                // 1. Buffer >= 10 chars, OR
+                // 2. Interval elapsed (50ms)
+                if buffer.len() >= 10 || last_update.elapsed() >= batch_interval {
+                    if !buffer.is_empty() {
+                        // PERFORMANCE: Use take() to avoid clone allocation
+                        let _ = tx_event_stream.send(AppEvent::EngineResponse(
+                            std::mem::take(&mut buffer)
+                        ));
+                        last_update = Instant::now();
+                    }
+                }
+            }
+            
+            // Flush remaining buffer at end of stream
+            if !buffer.is_empty() {
+                let _ = tx_event_stream.send(AppEvent::EngineResponse(
+                    std::mem::take(&mut buffer)
+                ));
             }
             
             // Wait for streaming task to complete and check for errors

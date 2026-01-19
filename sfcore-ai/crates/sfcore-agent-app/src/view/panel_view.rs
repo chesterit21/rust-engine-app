@@ -7,13 +7,14 @@ use crate::assets::TextureCache;
 use crate::ui_helpers::draw_gradient_border;
 use crate::viewmodel::{menu_vm::MenuItem, EngineViewModel, MenuViewModel};
 use eframe::egui::{self, Color32, CursorIcon, Image, Pos2, RichText, ScrollArea, TextEdit, Vec2};
+use std::time::Duration;
 
 // ============================================================================
 // PANEL SIZE CONSTANTS
 // ============================================================================
 
-const PANEL_WIDTH: f32 = 600.0;
-const PANEL_HEIGHT: f32 = 380.0;
+const PANEL_WIDTH: f32 = 700.0; // +100px
+const PANEL_HEIGHT: f32 = 430.0; // +50px
 
 // ============================================================================
 
@@ -46,6 +47,26 @@ pub fn render_panel(
     let _area_response = egui::Area::new(egui::Id::new("slide_panel"))
         .fixed_pos(Pos2::new(panel_x, 0.0))
         .show(ctx, |ui| {
+            // DRAG TO MOVE WINDOW (header area)
+            let header_rect = egui::Rect::from_min_size(
+                Pos2::new(panel_x, 0.0),
+                Vec2::new(PANEL_WIDTH, 50.0), // Header height for drag
+            );
+            let drag_response = ui.interact(
+                header_rect,
+                egui::Id::new("panel_drag_area"),
+                egui::Sense::drag(),
+            );
+
+            if drag_response.drag_started() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+            if drag_response.dragged() {
+                ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+            } else if drag_response.hovered() && !drag_response.dragged() {
+                ui.ctx().set_cursor_icon(CursorIcon::Grab);
+            }
+
             egui::Frame::none()
                 .fill(bg_color)
                 .inner_margin(20.0)
@@ -256,6 +277,11 @@ fn render_engine(
     vm: &mut EngineViewModel,
     textures: &mut TextureCache,
 ) {
+    // PERFORMANCE IMPROVEMENT: Rate-limited repaint during streaming (60fps max)
+    if vm.is_loading {
+        ctx.request_repaint_after(Duration::from_millis(16));
+    }
+
     // Log Panel (Small area for logs)
     egui::Frame::none()
         .fill(Color32::from_rgb(10, 10, 15))
@@ -305,6 +331,7 @@ fn render_engine(
                     .max_height(response_height)
                     .min_scrolled_height(response_height)
                     .stick_to_bottom(true)
+                    .auto_shrink([false, false]) // PERFORMANCE: Prevent layout recalculation
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
                         ui.set_min_height(response_height);
@@ -323,7 +350,22 @@ fn render_engine(
                                 );
                             });
                         } else {
-                            for msg in &vm.messages {
+                            // PERFORMANCE IMPROVEMENT: Lazy loading - only render last 50 messages
+                            let visible_start = vm.messages.len().saturating_sub(50);
+
+                            if visible_start > 0 {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "... {} pesan sebelumnya",
+                                        visible_start
+                                    ))
+                                    .size(10.0)
+                                    .color(Color32::DARK_GRAY),
+                                );
+                                ui.add_space(5.0);
+                            }
+
+                            for msg in &vm.messages[visible_start..] {
                                 ui.add_space(5.0);
                                 match msg.role {
                                     crate::viewmodel::engine_vm::MessageRole::User => {
@@ -422,26 +464,28 @@ fn render_engine(
             let border_rect = response.rect.expand(2.0);
             draw_gradient_border(ui.painter(), border_rect, 1.0);
 
-            // Send button with Icon
-            let send_tex = textures.send(ctx);
-            let send_btn = ui.add(
-                egui::Button::image(Image::new(&send_tex).fit_to_exact_size(Vec2::splat(20.0)))
-                    .fill(Color32::from_rgb(60, 100, 160))
-                    .min_size(Vec2::new(40.0, 75.0)), // Match taller input
-            );
+            // Send button with fixed position (use vertical layout with top alignment)
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                let send_tex = textures.send(ctx);
+                let send_btn = ui.add(
+                    egui::Button::image(Image::new(&send_tex).fit_to_exact_size(Vec2::splat(20.0)))
+                        .fill(Color32::from_rgb(60, 100, 160))
+                        .min_size(Vec2::new(40.0, 40.0)), // Fixed square size
+                );
 
-            if send_btn.hovered() {
-                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-            }
+                if send_btn.hovered() {
+                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                }
 
-            // Handle Send on Click OR Enter (only if server ready)
-            let can_send = vm.is_ready() && !vm.chat_input.trim().is_empty();
-            if can_send
-                && (send_btn.clicked()
-                    || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))))
-            {
-                vm.send_message();
-            }
+                // Handle Send on Click OR Enter (only if server ready)
+                let can_send = vm.is_ready() && !vm.chat_input.trim().is_empty();
+                if can_send
+                    && (send_btn.clicked()
+                        || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))))
+                {
+                    vm.send_message();
+                }
+            });
         });
     });
 }

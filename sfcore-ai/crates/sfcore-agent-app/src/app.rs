@@ -29,12 +29,12 @@ use tokio::sync::mpsc;
 pub const DOCK_WIDTH: f32 = 60.0;
 
 /// Height of both dock and panel windows
-/// Reduced to 380 to ensure bottom border visible
-pub const DOCK_HEIGHT: f32 = 380.0;
+/// Increased by 50px for better visibility
+pub const DOCK_HEIGHT: f32 = 430.0;
 
 /// Width of the slide-out panel (appears when menu clicked)
-/// Reduced from 650 to 600 to prevent overlap with dock
-pub const PANEL_WIDTH: f32 = 600.0;
+/// Increased by 100px for more space
+pub const PANEL_WIDTH: f32 = 700.0;
 
 /// Gap/margin between dock and panel (transparent space between them)
 /// Increase for more visible separation

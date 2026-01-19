@@ -1,0 +1,34 @@
+# Fine-Tuning Gemma 3 270M on Google Colab TPU
+# PyTorch XLA dependencies
+
+# Core dependencies
+torch>=2.0.0
+transformers>=4.36.0
+accelerate>=0.25.0
+peft>=0.7.0
+trl>=0.7.0
+datasets>=2.14.0
+
+# TPU specific - PyTorch XLA
+# Install via: pip install cloud-tpu-client torch_xla
+cloud-tpu-client>=0.10
+
+# Tokenization
+sentencepiece>=0.1.99
+protobuf>=3.20.0
+
+# HuggingFace Hub
+huggingface-hub>=0.19.0
+
+# Monitoring & Logging (reduced usage for TPU)
+wandb>=0.16.0
+tensorboard>=2.14.0
+
+# Utilities
+psutil>=5.9.0
+pyyaml>=6.0
+tqdm>=4.66.0
+numpy>=1.24.0
+
+# Note: torch_xla is installed separately via:
+# pip install cloud-tpu-client==0.10 https://storage.googleapis.com/pytorch-xla-releases/wheels/tpuvm/torch_xla-2.0-cp310-cp310-linux_x86_64.whl
