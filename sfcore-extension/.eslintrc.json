@@ -1,0 +1,47 @@
+{
+    "root": true,
+    "parser": "@typescript-eslint/parser",
+    "parserOptions": {
+        "ecmaVersion": 2022,
+        "sourceType": "module",
+        "ecmaFeatures": {
+            "jsx": true
+        }
+    },
+    "plugins": [
+        "@typescript-eslint"
+    ],
+    "extends": [
+        "eslint:recommended",
+        "plugin:@typescript-eslint/recommended"
+    ],
+    "rules": {
+        "@typescript-eslint/naming-convention": [
+            "warn",
+            {
+                "selector": "variableLike",
+                "format": [
+                    "camelCase",
+                    "UPPER_CASE",
+                    "PascalCase"
+                ],
+                "leadingUnderscore": "allow"
+            }
+        ],
+        "@typescript-eslint/semi": "warn",
+        "curly": "warn",
+        "eqeqeq": "warn",
+        "no-throw-literal": "warn",
+        "semi": "off"
+    },
+    "ignorePatterns": [
+        "out",
+        "dist",
+        "**/*.d.ts"
+    ],
+    "settings": {
+        "react": {
+            "version": "detect"
+        }
+    }
+}

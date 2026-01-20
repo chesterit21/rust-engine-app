@@ -1,0 +1,36 @@
+.mode-selector {
+    display: flex;
+    gap: 4px;
+    padding: 2px;
+    background-color: var(--vscode-input-background);
+    border-radius: 6px;
+}
+
+.mode-button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    background-color: transparent;
+    color: var(--vscode-descriptionForeground);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mode-button:hover {
+    background-color: var(--vscode-list-hoverBackground);
+    color: var(--vscode-foreground);
+}
+
+.mode-button.active {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.mode-button.active:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}

@@ -1,0 +1,28 @@
+{
+    "compilerOptions": {
+        "module": "CommonJS",
+        "target": "ES2022",
+        "lib": [
+            "ES2022"
+        ],
+        "outDir": "out",
+        "rootDir": "src",
+        "sourceMap": true,
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "moduleResolution": "Node",
+        "resolveJsonModule": true,
+        "declaration": true,
+        "declarationMap": true
+    },
+    "include": [
+        "src/extension/**/*",
+        "src/shared/**/*"
+    ],
+    "exclude": [
+        "node_modules",
+        "src/webview/**/*"
+    ]
+}

@@ -1,0 +1,115 @@
+{
+    "name": "sfcore-agent",
+    "displayName": "SFCore-Agent",
+    "description": "SFCore AI-powered development assistant",
+    "version": "0.1.0",
+    "publisher": "sfcore-indonesia",
+    "author": {
+        "name": "SFCore Indonesia"
+    },
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "AI",
+        "Programming Languages",
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "SFCoreAgent",
+                    "title": "SFCore-Agent",
+                    "icon": "media/icons/agent.svg"
+                }
+            ]
+        },
+        "views": {
+            "SFCoreAgent": [
+                {
+                    "type": "webview",
+                    "id": "SFCoreAgent.chatView",
+                    "name": "",
+                    "icon": "media/icons/agent.svg"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "SFCoreAgent.openChat",
+                "title": "Open SFCore-Agent Chat"
+            },
+            {
+                "command": "SFCoreAgent.addFileToContext",
+                "title": "Add File to Context"
+            }
+        ],
+        "menus": {
+            "explorer/context": [
+                {
+                    "command": "SFCoreAgent.addFileToContext",
+                    "group": "SFCoreAgent"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "SFCore-Agent",
+            "properties": {
+                "SFCoreAgent.transport.type": {
+                    "type": "string",
+                    "enum": [
+                        "auto",
+                        "uds",
+                        "http"
+                    ],
+                    "default": "auto",
+                    "description": "Transport protocol (auto-detect recommended)"
+                },
+                "SFCoreAgent.transport.uds.socketPath": {
+                    "type": "string",
+                    "default": "/tmp/sfcore-ai.sock",
+                    "description": "Unix Domain Socket path"
+                },
+                "SFCoreAgent.transport.http.baseUrl": {
+                    "type": "string",
+                    "default": "http://localhost:8080",
+                    "description": "HTTP server base URL"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run build",
+        "build": "webpack --mode production",
+        "watch": "webpack --mode development --watch",
+        "test": "node ./out/test/runTest.js",
+        "lint": "eslint src --ext ts,tsx"
+    },
+    "devDependencies": {
+        "@types/node": "^20.x",
+        "@types/vscode": "^1.85.0",
+        "@types/react": "^18.2.0",
+        "@types/react-dom": "^18.2.0",
+        "@typescript-eslint/eslint-plugin": "^6.0.0",
+        "@typescript-eslint/parser": "^6.0.0",
+        "eslint": "^8.50.0",
+        "typescript": "^5.2.0",
+        "webpack": "^5.88.0",
+        "webpack-cli": "^5.1.0",
+        "ts-loader": "^9.4.0",
+        "css-loader": "^6.8.0",
+        "style-loader": "^3.3.0"
+    },
+    "dependencies": {
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "zustand": "^4.4.0",
+        "@msgpack/msgpack": "^3.0.0",
+        "eventsource": "^2.0.2"
+    }
+}

@@ -1,0 +1,173 @@
+/* Common Component Styles */
+
+/* Button */
+.common-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.common-button.primary {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.common-button.primary:hover:not(:disabled) {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.common-button.secondary {
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
+
+.common-button.secondary:hover:not(:disabled) {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.common-button.danger {
+    background-color: #f14c4c;
+    color: white;
+}
+
+.common-button.danger:hover:not(:disabled) {
+    background-color: #d13838;
+}
+
+.common-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.button-icon {
+    font-size: 16px;
+}
+
+/* Button variants */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.btn-secondary {
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
+
+.btn-sm {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.btn-md {
+    padding: 8px 16px;
+    font-size: 13px;
+}
+
+.btn-lg {
+    padding: 12px 24px;
+    font-size: 14px;
+}
+
+/* Loading */
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 20px;
+}
+
+.loading-dots {
+    display: flex;
+    align-items: center;
+}
+
+.loading-dots .dot {
+    background-color: var(--vscode-progressBar-background);
+    border-radius: 50%;
+    animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.loading-dots .dot:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.loading-dots .dot:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+
+    0%,
+    80%,
+    100% {
+        transform: scale(0);
+    }
+
+    40% {
+        transform: scale(1);
+    }
+}
+
+.spinner {
+    border: 3px solid var(--vscode-editorWidget-background);
+    border-top-color: var(--vscode-progressBar-background);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.loading-container.small .spinner {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
+}
+
+.loading-container.medium .spinner {
+    width: 40px;
+    height: 40px;
+}
+
+.loading-container.large .spinner {
+    width: 60px;
+    height: 60px;
+    border-width: 4px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.loading-text {
+    font-size: 13px;
+    color: var(--vscode-descriptionForeground);
+}
+
+/* Icon */
+.icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
