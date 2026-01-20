@@ -41,7 +41,17 @@ flowchart LR
 
 1.  **UI Layer (React)**: Berjalan di dalam sandbox `iframe` (Webview VS Code). Tidak punya akses langsung ke file system atau OS.
 2.  **Middleware (TypeScript)**: Berjalan di proses Extension Host VS Code. Bertindak sebagai "Controller" yang menjembatani UI dan OS/Backend.
-3.  **Backend (Rust)**: Proses terpisah (Daemon) yang menangani komputasi berat (AI Inference). Berkomunikasi lewat Unix Domain Socket (UDS).
+4.  **Backend (Rust)**: Proses terpisah (Daemon) yang menangani komputasi berat (AI Inference). Berkomunikasi lewat Unix Domain Socket (UDS).
+
+> [!IMPORTANT]
+> **Kenapa React tidak langsung tembak UDS/Rust?**
+> Karena **Security Sandbox**.
+> Webview di VS Code itu seperti tab browser Chrome yang terisolasi. Dia **DILARANG** mengakses File System, Network Socket (selain WebSocket/HTTP standard), atau memanggil Native Process.
+>
+> Itulah kenapa kita butuh **Extension Host (Node.js)** sebagai "Jembatan/Broker".
+> *   React minta tolong Node.js ("Eh, kirimin ini ke Rust dong").
+> *   Node.js (yang punya akses OS penuh) meneruskan pesan ke Rust via Socket.
+
 
 ## 3. Bedah Kode: React Frontend (`src/webview`)
 

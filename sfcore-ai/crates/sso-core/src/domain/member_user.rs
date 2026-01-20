@@ -1,0 +1,251 @@
+// ============================================================================
+// SSO Core - Member User Entity
+// File: crates/sso-core/src/domain/member_user.rs
+// Description: User entity with complete validation
+// ============================================================================
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+use validator::Validate;
+
+/// User status enumeration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemberStatus {
+    NewRegister,
+    WaitValidation,
+    Invitation,
+    Active,
+    Suspended,
+    Blocked,
+}
+
+impl MemberStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MemberStatus::NewRegister => "new_register",
+            MemberStatus::WaitValidation => "wait_validation",
+            MemberStatus::Invitation => "invitation",
+            MemberStatus::Active => "active",
+            MemberStatus::Suspended => "suspended",
+            MemberStatus::Blocked => "blocked",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "new_register" => Some(MemberStatus::NewRegister),
+            "wait_validation" => Some(MemberStatus::WaitValidation),
+            "invitation" => Some(MemberStatus::Invitation),
+            "active" => Some(MemberStatus::Active),
+            "suspended" => Some(MemberStatus::Suspended),
+            "blocked" => Some(MemberStatus::Blocked),
+            _ => None,
+        }
+    }
+}
+
+impl Default for MemberStatus {
+    fn default() -> Self {
+        MemberStatus::NewRegister
+    }
+}
+
+/// Member User entity
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct MemberUser {
+    pub id: Uuid,
+    
+    #[validate(length(min = 2, max = 100, message = "Display name must be between 2 and 100 characters"))]
+    pub display_name: String,
+    
+    #[validate(email(message = "Invalid email format"))]
+    #[validate(length(max = 255, message = "Email must not exceed 255 characters"))]
+    pub email: String,
+    
+    /// Hashed password (NULL for OAuth-only users)
+    pub password: Option<String>,
+    
+    pub is_active: bool,
+    pub is_login: bool,
+    pub last_login: Option<DateTime<Utc>>,
+    pub status_member: MemberStatus,
+    
+    #[validate(url(message = "Invalid profile image URL"))]
+    #[validate(length(max = 2048, message = "Profile image URL too long"))]
+    pub link_profile_image: Option<String>,
+    
+    pub email_verified: bool,
+    
+    #[validate(length(max = 20, message = "Phone number too long"))]
+    pub phone_number: Option<String>,
+    
+    // Audit fields
+    pub created_at: DateTime<Utc>,
+    pub created_by: Option<Uuid>,
+    pub modified_at: Option<DateTime<Utc>>,
+    pub modified_by: Option<Uuid>,
+    pub removed_at: Option<DateTime<Utc>>,
+    pub removed_by: Option<Uuid>,
+    pub approved_at: Option<DateTime<Utc>>,
+    pub approved_by: Option<Uuid>,
+}
+
+impl MemberUser {
+    /// Create new user with validated data
+    pub fn new(
+        display_name: String,
+        email: String,
+        password: Option<String>,
+    ) -> Result<Self, validator::ValidationErrors> {
+        let user = Self {
+            id: Uuid::new_v4(),
+            display_name: display_name.trim().to_string(),
+            email: email.trim().to_lowercase(),
+            password,
+            is_active: true,
+            is_login: false,
+            last_login: None,
+            status_member: MemberStatus::NewRegister,
+            link_profile_image: None,
+            email_verified: false,
+            phone_number: None,
+            created_at: Utc::now(),
+            created_by: None,
+            modified_at: None,
+            modified_by: None,
+            removed_at: None,
+            removed_by: None,
+            approved_at: None,
+            approved_by: None,
+        };
+
+        user.validate()?;
+        Ok(user)
+    }
+
+    /// Create user from OAuth provider
+    pub fn from_oauth(
+        display_name: String,
+        email: String,
+        profile_image: Option<String>,
+    ) -> Result<Self, validator::ValidationErrors> {
+        let mut user = Self::new(display_name, email, None)?;
+        user.link_profile_image = profile_image;
+        user.email_verified = true; // OAuth emails are pre-verified
+        Ok(user)
+    }
+
+    /// Check if user can login
+    pub fn can_login(&self) -> bool {
+        self.is_active 
+            && !matches!(self.status_member, MemberStatus::Blocked | MemberStatus::Suspended)
+            && self.removed_at.is_none()
+    }
+
+    /// Check if user requires email verification
+    pub fn requires_email_verification(&self) -> bool {
+        !self.email_verified && matches!(self.status_member, MemberStatus::NewRegister)
+    }
+
+    /// Activate user account
+    pub fn activate(&mut self, activated_by: Option<Uuid>) {
+        self.status_member = MemberStatus::Active;
+        self.email_verified = true;
+        self.approved_at = Some(Utc::now());
+        self.approved_by = activated_by;
+        self.modified_at = Some(Utc::now());
+        self.modified_by = activated_by;
+    }
+
+    /// Suspend user account
+    pub fn suspend(&mut self, suspended_by: Uuid) {
+        self.status_member = MemberStatus::Suspended;
+        self.is_active = false;
+        self.modified_at = Some(Utc::now());
+        self.modified_by = Some(suspended_by);
+    }
+
+    /// Block user account
+    pub fn block(&mut self, blocked_by: Uuid) {
+        self.status_member = MemberStatus::Blocked;
+        self.is_active = false;
+        self.modified_at = Some(Utc::now());
+        self.modified_by = Some(blocked_by);
+    }
+
+    /// Soft delete user
+    pub fn soft_delete(&mut self, deleted_by: Uuid) {
+        self.removed_at = Some(Utc::now());
+        self.removed_by = Some(deleted_by);
+        self.is_active = false;
+        self.is_login = false;
+    }
+
+    /// Update last login
+    pub fn update_last_login(&mut self) {
+        self.last_login = Some(Utc::now());
+        self.is_login = true;
+    }
+    
+    /// Record login (alias for update_last_login, used by AuthService)
+    pub fn record_login(&mut self) {
+        self.update_last_login();
+    }
+
+    /// Logout user
+    pub fn logout(&mut self) {
+        self.is_login = false;
+    }
+
+    /// Check if user is soft deleted
+    pub fn is_deleted(&self) -> bool {
+        self.removed_at.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_valid_user() {
+        let user = MemberUser::new(
+            "John Doe".to_string(),
+            "john@example.com".to_string(),
+            None,
+        );
+        assert!(user.is_ok());
+    }
+
+    #[test]
+    fn test_user_can_login() {
+        let mut user = MemberUser::new(
+            "John Doe".to_string(),
+            "john@example.com".to_string(),
+            None,
+        ).unwrap();
+        
+        user.activate(None);
+        assert!(user.can_login());
+        
+        user.suspend(Uuid::new_v4());
+        assert!(!user.can_login());
+    }
+
+    #[test]
+    fn test_soft_delete() {
+        let mut user = MemberUser::new(
+            "John Doe".to_string(),
+            "john@example.com".to_string(),
+            None,
+        ).unwrap();
+        
+        assert!(!user.is_deleted());
+        
+        user.soft_delete(Uuid::new_v4());
+        assert!(user.is_deleted());
+        assert!(!user.can_login());
+    }
+}

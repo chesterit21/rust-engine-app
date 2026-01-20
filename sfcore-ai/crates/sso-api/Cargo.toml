@@ -1,0 +1,44 @@
+[package]
+name = "sso-api"
+version = "0.1.0"
+edition = "2021"
+authors = ["SFCore Indonesia"]
+license = "MIT"
+
+[dependencies]
+sso-shared.workspace = true
+sso-core.workspace = true
+sso-security.workspace = true
+
+# Web Framework
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+hyper.workspace = true
+
+# Async
+tokio.workspace = true
+async-trait.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Types
+uuid.workspace = true
+chrono.workspace = true
+
+# Validation
+validator.workspace = true
+
+# Error
+thiserror.workspace = true
+
+# Tracing
+tracing.workspace = true
+
+# Rate Limiting
+governor.workspace = true
+
+[dev-dependencies]
+mockall.workspace = true
