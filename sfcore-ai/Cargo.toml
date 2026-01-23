@@ -1,27 +1,30 @@
 [workspace]
 members = [
     # Existing AI/Inference Crates
-    "crates/engine",
-    "crates/cli",
-    "crates/server",
-    "crates/localcached-proto",
-    "crates/localcached-server",
-    "crates/localcached-client",
-    "crates/localcached-cli",
-    "crates/sfcore-agent-app",
+    # "crates/engine",
+    # "crates/cli",
+    # "crates/server",
+    # "crates/localcached-proto",
+    # "crates/localcached-server",
+    # "crates/localcached-client",
+    # "crates/localcached-cli",
+    # "crates/sfcore-agent-app",
 
     # SSO Fullstack Rust Crates
-    "crates/sso-core",
-    "crates/sso-infrastructure",
-    "crates/sso-api",
-    "crates/sso-security",
-    "crates/sso-shared",
+    # "crates/sso-core",
+    # "crates/sso-infrastructure",
+    # "crates/sso-api",
+    # "crates/sso-security",
+    # "crates/sso-shared",
     
     # SSO Application
-    "sfcore-client-app/sso-server",
+    # "sfcore-client-app/sso-server",
 
     # RAG Worker
-    "crates/rag-embedding-worker",
+    # "crates/rag-embedding-worker",
+    
+    # RAG API Server
+    "crates/rag-api-server",
 ]
 resolver = "2"
 

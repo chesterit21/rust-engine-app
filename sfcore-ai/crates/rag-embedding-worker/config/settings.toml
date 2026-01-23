@@ -1,25 +1,32 @@
 [database]
+url = "postgres://user:password@localhost:5432/dbname"
 pool_max_size = 10
 pool_timeout_seconds = 30
 listen_channel = "document_changes"
 
 [embedding]
-model = "AllMiniLML6V2"
-dimension = 384
+model = "AllMiniLML6V2"  # Model name
+dimension = 384  # 384 for AllMiniLML6V2, 1536 for text-embedding-3-small
 batch_size = 32
 
 [chunking]
 size = 512
 overlap = 50
-strategy = "semantic"
+strategy = "semantic"  # semantic, fixed, recursive
 
 [worker]
 threads = 4
-bulk_batch_size = 10
+bulk_batch_size = 10  # Process 10 docs per batch
 processing_timeout_seconds = 300
+document_root_path = "/path/to/documents"
 
-[retry]
-max_attempts = 3
-initial_interval_ms = 1000
-max_interval_ms = 60000
-multiplier = 2.0
+[llama_server]
+binary_path = "/path/to/llama-server"  # atau llama-server.exe di Windows
+model_path = "/path/to/models/all-MiniLM-L6-v2-Q4_K_M.gguf"
+host = "127.0.0.1"
+port = 8080
+startup_timeout_seconds = 60
+shutdown_timeout_seconds = 10
+embedding_only = true
+ctx_size = 2048
+threads = 4

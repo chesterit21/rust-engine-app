@@ -1,0 +1,49 @@
+[server]
+host = "0.0.0.0"
+port = 8000
+max_connections = 1000
+
+# Security settings
+[security]
+# IP Whitelist - bisa update tanpa restart!
+# Support: single IP, IP range, CIDR
+allowed_ips = [
+    "192.168.155.156",           # Client App Server
+    "192.168.155.0/24",          # Subnet
+    "127.0.0.1",                 # Localhost
+    "::1"                        # IPv6 localhost
+]
+
+# Custom HTTP Headers yang wajib ada
+[security.custom_headers]
+# Header name dan expected value
+app_id = "DMS-CLIENT-APP-2026"
+api_key = "your-secret-api-key-here-change-me"
+request_signature = "enabled"  # "enabled" atau "disabled"
+
+# Header timeout (dalam detik)
+timestamp_tolerance = 300  # 5 minutes
+
+[database]
+url = "postgres://user:password@localhost:5432/dbname"
+pool_max_size = 20
+pool_timeout_seconds = 30
+
+[embedding]
+model = "AllMiniLML6V2"
+dimension = 384
+
+[llm]
+# llama-server URL
+base_url = "http://127.0.0.1:8080"
+timeout_seconds = 300
+max_tokens = 2048
+
+[rag]
+# RAG settings
+retrieval_top_k = 5
+chunk_overlap_percentage = 0.1
+rerank_enabled = false
+
+# Context window
+max_context_length = 4000
