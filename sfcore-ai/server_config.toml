@@ -2,7 +2,7 @@
 
 # Path to the GGUF model file
 # Ganti path ini ke lokasi model Anda
-model = "./models/Qwen3-0.6B-UD-Q5_K_XL.gguf"
+model = "./models/Falcon-H1-Tiny-Coder-90M.Q8_0.gguf"
 
 # Unix Domain Socket path (default: /tmp/sfcore-ai.sock)
 socket = "/tmp/sfcore-ai.sock"

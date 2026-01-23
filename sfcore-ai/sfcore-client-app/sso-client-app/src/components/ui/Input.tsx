@@ -1,11 +1,11 @@
-import React, { forwardRef } from 'react';
+import { forwardRef, InputHTMLAttributes, ReactNode } from 'react';
 import clsx from 'clsx';
 import { AlertCircle } from 'lucide-react';
 
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(

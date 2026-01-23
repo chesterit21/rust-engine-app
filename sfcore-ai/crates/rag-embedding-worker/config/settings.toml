@@ -1,0 +1,25 @@
+[database]
+pool_max_size = 10
+pool_timeout_seconds = 30
+listen_channel = "document_changes"
+
+[embedding]
+model = "AllMiniLML6V2"
+dimension = 384
+batch_size = 32
+
+[chunking]
+size = 512
+overlap = 50
+strategy = "semantic"
+
+[worker]
+threads = 4
+bulk_batch_size = 10
+processing_timeout_seconds = 300
+
+[retry]
+max_attempts = 3
+initial_interval_ms = 1000
+max_interval_ms = 60000
+multiplier = 2.0

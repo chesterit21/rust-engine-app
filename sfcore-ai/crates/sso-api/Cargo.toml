@@ -24,6 +24,9 @@ async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# Database
+sqlx.workspace = true
+
 # Types
 uuid.workspace = true
 chrono.workspace = true

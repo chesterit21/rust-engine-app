@@ -1,0 +1,58 @@
+[package]
+name = "rag-embedding-worker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.42", features = ["full"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+
+# Database
+sqlx = { version = "0.8", features = [
+    "runtime-tokio-native-tls",
+    "postgres",
+    "chrono",
+    "json"
+] }
+pgvector = { version = "0.4", features = ["sqlx"] }
+deadpool-postgres = "0.14"
+
+# Embedding
+fastembed = "4.4"
+
+# Document processing
+lopdf = "0.35"
+docx-rs = "0.4"
+encoding_rs = "0.8"
+
+# Text processing
+text-splitter = "0.18"
+unicode-segmentation = "1.12"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+async-trait = "0.1"
+once_cell = "1.20"
+
+[dev-dependencies]
+mockall = "0.13"
+tokio-test = "0.4"

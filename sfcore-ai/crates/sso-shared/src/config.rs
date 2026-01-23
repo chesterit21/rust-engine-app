@@ -49,7 +49,7 @@ impl AppConfig {
             .set_default("app.name", "sso-server")?
             .add_source(File::with_name("config/default").required(false))
             .add_source(File::with_name(&format!("config/{}", env)).required(false))
-            .add_source(Environment::default().separator("_").try_parsing(true))
+            .add_source(Environment::default().separator("__").try_parsing(true))
             .build()?;
         config.try_deserialize()
     }

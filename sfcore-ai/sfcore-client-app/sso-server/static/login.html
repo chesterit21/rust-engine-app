@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSO Login - Secure Authentication</title>
+    
+    <!-- Font Awesome (Local) -->
+    <link rel="stylesheet" href="/assets/css/fontawesome.min.css">
+    
+    <style>
+        :root {
+            /* Color Palette - Luxury Dark Theme */
+            --primary-gradient-start: #667eea;
+            --primary-gradient-end: #764ba2;
+            --secondary-gradient-start: #f093fb;
+            --secondary-gradient-end: #f5576c;
+            --accent-blue: #4facfe;
+            --accent-purple: #b084ff;
+            --accent-pink: #ff6b9d;
+            
+            /* Glassmorphism Colors */
+            --glass-bg: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --glass-shadow: rgba(0, 0, 0, 0.3);
+            
+            /* Text Colors */
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.75);
+            --text-muted: rgba(255, 255, 255, 0.5);
+            
+            /* Status Colors */
+            --success: #10b981;
+            --error: #ef4444;
+            --warning: #f59e0b;
+            
+            /* Spacing */
+            --spacing-xs: 0.5rem;
+            --spacing-sm: 1rem;
+            --spacing-md: 1.5rem;
+            --spacing-lg: 2rem;
+            --spacing-xl: 3rem;
+            
+            /* Typography */
+            --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+            --font-body: 'Outfit', system-ui, -apple-system, sans-serif;
+            
+            /* Border Radius */
+            --radius-sm: 8px;
+            --radius-md: 16px;
+            --radius-lg: 24px;
+            --radius-xl: 32px;
+            
+            /* Animation */
+            --transition-fast: 0.2s ease;
+            --transition-normal: 0.3s ease;
+            --transition-slow: 0.5s ease;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-body);
+            background: #0a0a0f;
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Animated Gradient Background */
+        .animated-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            background: linear-gradient(-45deg, #0a0a0f, #1a1a2e, #16213e, #0f3460);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+        }
+
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* Floating Orbs */
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.6;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .orb-1 {
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, var(--primary-gradient-start), transparent);
+            top: -10%;
+            left: -10%;
+            animation-delay: 0s;
+        }
+
+        .orb-2 {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, var(--accent-purple), transparent);
+            bottom: -15%;
+            right: -10%;
+            animation-delay: 5s;
+        }
+
+        .orb-3 {
+            width: 350px;
+            height: 350px;
+            background: radial-gradient(circle, var(--accent-pink), transparent);
+            top: 50%;
+            right: 20%;
+            animation-delay: 10s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(50px, -50px) scale(1.1); }
+            50% { transform: translate(-30px, 30px) scale(0.9); }
+            75% { transform: translate(40px, 50px) scale(1.05); }
+        }
+
+        /* Glass Grid Pattern */
+        .grid-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 50px 50px;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* Main Container */
+        .container {
+            position: relative;
+            z-index: 10;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: var(--spacing-md);
+        }
+
+        /* Login Card - Glassmorphism */
+        .login-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xl);
+            box-shadow: 
+                0 8px 32px 0 var(--glass-shadow),
+                inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+            padding: var(--spacing-xl);
+            width: 100%;
+            max-width: 480px;
+            position: relative;
+            overflow: hidden;
+            animation: slideInUp 0.6s ease-out;
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Shimmer Effect on Card */
+        .login-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(
+                45deg,
+                transparent,
+                rgba(255, 255, 255, 0.03),
+                transparent
+            );
+            transform: rotate(45deg);
+            animation: shimmer 3s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+        }
+
+        /* Logo Section */
+        .logo-section {
+            text-align: center;
+            margin-bottom: var(--spacing-xl);
+            animation: fadeIn 0.8s ease-out 0.2s both;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto var(--spacing-md);
+            background: linear-gradient(135deg, var(--primary-gradient-start), var(--primary-gradient-end));
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            position: relative;
+        }
+
+        .logo::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: var(--radius-md);
+            z-index: -1;
+            opacity: 0;
+            transition: opacity var(--transition-normal);
+        }
+
+        .logo:hover::after {
+            opacity: 0.5;
+        }
+
+        .logo i {
+            background: linear-gradient(135deg, #fff, rgba(255, 255, 255, 0.8));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .brand-name {
+            font-family: var(--font-display);
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--text-primary), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: var(--spacing-xs);
+            letter-spacing: -0.02em;
+        }
+
+        .brand-tagline {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        /* Form Tabs */
+        .form-tabs {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-lg);
+            background: rgba(255, 255, 255, 0.03);
+            padding: 6px;
+            border-radius: var(--radius-md);
+            animation: fadeIn 0.8s ease-out 0.3s both;
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-family: var(--font-body);
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all var(--transition-normal);
+            position: relative;
+        }
+
+        .tab-button.active {
+            background: linear-gradient(135deg, var(--primary-gradient-start), var(--primary-gradient-end));
+            color: var(--text-primary);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .tab-button:not(.active):hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        /* Form Container */
+        .form-container {
+            position: relative;
+        }
+
+        .form-content {
+            display: none;
+            animation: fadeInScale 0.4s ease-out;
+        }
+
+        .form-content.active {
+            display: block;
+        }
+
+        @keyframes fadeInScale {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        /* Form Groups */
+        .form-group {
+            margin-bottom: var(--spacing-md);
+            animation: fadeIn 0.8s ease-out calc(0.4s + var(--delay, 0s)) both;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-xs);
+            letter-spacing: 0.01em;
+        }
+
+        /* Input Wrapper for Icons */
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            transition: color var(--transition-normal);
+            pointer-events: none;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 16px 18px 16px 50px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1.5px solid rgba(255, 255, 255, 0.1);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all var(--transition-normal);
+            backdrop-filter: blur(10px);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .form-input:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--primary-gradient-start);
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-input:focus + .input-icon {
+            color: var(--primary-gradient-start);
+        }
+
+        /* Password Toggle */
+        .password-toggle {
+            position: absolute;
+            right: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: color var(--transition-normal);
+            padding: 4px;
+        }
+
+        .password-toggle:hover {
+            color: var(--text-primary);
+        }
+
+        /* Error State */
+        .form-input.error {
+            border-color: var(--error);
+            background: rgba(239, 68, 68, 0.05);
+        }
+
+        .error-message {
+            display: none;
+            color: var(--error);
+            font-size: 0.85rem;
+            margin-top: var(--spacing-xs);
+            font-weight: 500;
+        }
+
+        .error-message.show {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            animation: shake 0.4s ease;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        /* Remember Me & Forgot Password */
+        .form-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-md);
+            font-size: 0.9rem;
+        }
+
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        .checkbox-wrapper input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: var(--primary-gradient-start);
+        }
+
+        .checkbox-wrapper label {
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .forgot-password {
+            color: var(--accent-blue);
+            text-decoration: none;
+            font-weight: 600;
+            transition: color var(--transition-fast);
+        }
+
+        .forgot-password:hover {
+            color: var(--accent-purple);
+            text-decoration: underline;
+        }
+
+        /* Submit Button */
+        .submit-button {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--primary-gradient-start), var(--primary-gradient-end));
+            border: none;
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-family: var(--font-display);
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all var(--transition-normal);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .submit-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .submit-button:hover::before {
+            left: 100%;
+        }
+
+        .submit-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(102, 126, 234, 0.5);
+        }
+
+        .submit-button:active {
+            transform: translateY(0);
+        }
+
+        .submit-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .submit-button .button-text {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        .submit-button.loading .spinner {
+            display: block;
+        }
+
+        .submit-button.loading .button-icon {
+            display: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Divider */
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-md);
+            margin: var(--spacing-lg) 0;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+        }
+
+        /* OAuth Buttons */
+        .oauth-buttons {
+            display: grid;
+            gap: var(--spacing-sm);
+        }
+
+        .oauth-button {
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1.5px solid rgba(255, 255, 255, 0.1);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-normal);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .oauth-button:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .oauth-button i {
+            font-size: 1.3rem;
+        }
+
+        .oauth-button.google:hover {
+            border-color: #4285F4;
+            box-shadow: 0 8px 20px rgba(66, 133, 244, 0.3);
+        }
+
+        .oauth-button.facebook:hover {
+            border-color: #1877F2;
+            box-shadow: 0 8px 20px rgba(24, 119, 242, 0.3);
+        }
+
+        .oauth-button.microsoft:hover {
+            border-color: #00A4EF;
+            box-shadow: 0 8px 20px rgba(0, 164, 239, 0.3);
+        }
+
+        /* Footer Links */
+        .footer-links {
+            text-align: center;
+            margin-top: var(--spacing-lg);
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+        }
+
+        .footer-links a {
+            color: var(--accent-blue);
+            text-decoration: none;
+            font-weight: 600;
+            transition: color var(--transition-fast);
+        }
+
+        .footer-links a:hover {
+            color: var(--accent-purple);
+            text-decoration: underline;
+        }
+
+        /* Success Message */
+        .success-message {
+            display: none;
+            padding: 16px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1.5px solid var(--success);
+            border-radius: var(--radius-md);
+            color: var(--success);
+            margin-bottom: var(--spacing-md);
+            animation: slideDown 0.4s ease-out;
+        }
+
+        .success-message.show {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 640px) {
+            :root {
+                --spacing-xl: 2rem;
+                --spacing-lg: 1.5rem;
+            }
+
+            .login-card {
+                padding: var(--spacing-lg);
+                border-radius: var(--radius-lg);
+            }
+
+            .logo {
+                width: 60px;
+                height: 60px;
+                font-size: 2rem;
+            }
+
+            .brand-name {
+                font-size: 1.6rem;
+            }
+
+            .brand-tagline {
+                font-size: 0.85rem;
+            }
+
+            .form-input {
+                padding: 14px 16px 14px 45px;
+                font-size: 0.95rem;
+            }
+
+            .submit-button {
+                padding: 14px;
+                font-size: 1rem;
+            }
+
+            .orb {
+                filter: blur(60px);
+            }
+
+            .oauth-buttons {
+                gap: 10px;
+            }
+
+            .oauth-button {
+                padding: 12px;
+                font-size: 0.95rem;
+            }
+        }
+
+        /* Extra animations for mobile */
+        @media (max-width: 640px) {
+            .container {
+                padding: var(--spacing-sm);
+            }
+
+            .login-card {
+                animation: slideInUpMobile 0.5s ease-out;
+            }
+
+            @keyframes slideInUpMobile {
+                from {
+                    opacity: 0;
+                    transform: translateY(50px) scale(0.95);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Animated Background -->
+    <div class="animated-background"></div>
+    
+    <!-- Floating Orbs -->
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    
+    <!-- Grid Overlay -->
+    <div class="grid-overlay"></div>
+
+    <!-- Main Container -->
+    <div class="container">
+        <div class="login-card">
+            <!-- Logo Section -->
+            <div class="logo-section">
+                <div class="logo">
+                    <i class="fas fa-shield-halved"></i>
+                </div>
+                <h1 class="brand-name">SecureAuth SSO</h1>
+                <p class="brand-tagline">Enterprise-grade authentication platform</p>
+            </div>
+
+            <!-- Form Tabs -->
+            <div class="form-tabs">
+                <button class="tab-button active" data-tab="login">
+                    <i class="fas fa-sign-in-alt"></i> Sign In
+                </button>
+                <button class="tab-button" data-tab="register">
+                    <i class="fas fa-user-plus"></i> Sign Up
+                </button>
+            </div>
+
+            <!-- Success Message -->
+            <div class="success-message" id="successMessage">
+                <i class="fas fa-check-circle"></i>
+                <span id="successText"></span>
+            </div>
+
+            <!-- Login Form -->
+            <div class="form-content active" id="loginForm">
+                <form id="loginFormElement" novalidate>
+                    <div class="form-group" style="--delay: 0s">
+                        <label class="form-label" for="loginEmail">Email Address</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="email" 
+                                id="loginEmail" 
+                                name="email"
+                                class="form-input" 
+                                placeholder="Enter your email"
+                                autocomplete="email"
+                                required
+                                maxlength="255"
+                            >
+                            <i class="fas fa-envelope input-icon"></i>
+                        </div>
+                        <div class="error-message" id="loginEmailError">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <span></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="--delay: 0.1s">
+                        <label class="form-label" for="loginPassword">Password</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="password" 
+                                id="loginPassword" 
+                                name="password"
+                                class="form-input" 
+                                placeholder="Enter your password"
+                                autocomplete="current-password"
+                                required
+                                minlength="8"
+                                maxlength="128"
+                            >
+                            <i class="fas fa-lock input-icon"></i>
+                            <button type="button" class="password-toggle" data-target="loginPassword">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <div class="error-message" id="loginPasswordError">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <span></span>
+                        </div>
+                    </div>
+
+                    <div class="form-options" style="--delay: 0.2s">
+                        <div class="checkbox-wrapper">
+                            <input type="checkbox" id="rememberMe" name="remember">
+                            <label for="rememberMe">Remember me</label>
+                        </div>
+                        <a href="#" class="forgot-password">Forgot password?</a>
+                    </div>
+
+                    <button type="submit" class="submit-button" style="--delay: 0.3s">
+                        <span class="button-text">
+                            <div class="spinner"></div>
+                            <i class="fas fa-arrow-right button-icon"></i>
+                            <span>Sign In</span>
+                        </span>
+                    </button>
+                </form>
+
+                <div class="divider" style="--delay: 0.4s">Or continue with</div>
+
+                <div class="oauth-buttons" style="--delay: 0.5s">
+                    <button class="oauth-button google" type="button" onclick="handleOAuthLogin('google')">
+                        <i class="fab fa-google"></i>
+                        <span>Continue with Google</span>
+                    </button>
+                    <button class="oauth-button facebook" type="button" onclick="handleOAuthLogin('facebook')">
+                        <i class="fab fa-facebook"></i>
+                        <span>Continue with Facebook</span>
+                    </button>
+                    <button class="oauth-button microsoft" type="button" onclick="handleOAuthLogin('microsoft')">
+                        <i class="fab fa-microsoft"></i>
+                        <span>Continue with Microsoft</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Register Form -->
+            <div class="form-content" id="registerForm">
+                <form id="registerFormElement" novalidate>
+                    <div class="form-group" style="--delay: 0s">
+                        <label class="form-label" for="registerName">Full Name</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="text" 
+                                id="registerName" 
+                                name="name"
+                                class="form-input" 
+                                placeholder="Enter your full name"
+                                autocomplete="name"
+                                required
+                                minlength="2"
+                                maxlength="100"
+                            >
+                            <i class="fas fa-user input-icon"></i>
+                        </div>
+                        <div class="error-message" id="registerNameError">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <span></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="--delay: 0.1s">
+                        <label class="form-label" for="registerEmail">Email Address</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="email" 
+                                id="registerEmail" 
+                                name="email"
+                                class="form-input" 
+                                placeholder="Enter your email"
+                                autocomplete="email"
+                                required
+                                maxlength="255"
+                            >
+                            <i class="fas fa-envelope input-icon"></i>
+                        </div>
+                        <div class="error-message" id="registerEmailError">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <span></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="--delay: 0.2s">
+                        <label class="form-label" for="registerPassword">Password</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="password" 
+                                id="registerPassword" 
+                                name="password"
+                                class="form-input" 
+                                placeholder="Create a strong password"
+                                autocomplete="new-password"
+                                required
+                                minlength="8"
+                                maxlength="128"
+                            >
+                            <i class="fas fa-lock input-icon"></i>
+                            <button type="button" class="password-toggle" data-target="registerPassword">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <div class="error-message" id="registerPasswordError">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <span></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="--delay: 0.3s">
+                        <label class="form-label" for="registerConfirmPassword">Confirm Password</label>
+                        <div class="input-wrapper">
+                            <input 
+                                type="password" 
+                                id="registerConfirmPassword" 
+                                name="confirmPassword"
+                                class="form-input" 
+                                placeholder="Re-enter your password"
+                                autocomplete="new-password"
+                                required
+                                minlength="8"
+                                maxlength="128"
+                            >
+                            <i class="fas fa-lock input-icon"></i>
+                            <button type="button" class="password-toggle" data-target="registerConfirmPassword">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <div class="error-message" id="registerConfirmPasswordError">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <span></span>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="submit-button" style="--delay: 0.4s">
+                        <span class="button-text">
+                            <div class="spinner"></div>
+                            <i class="fas fa-user-plus button-icon"></i>
+                            <span>Create Account</span>
+                        </span>
+                    </button>
+                </form>
+
+                <div class="divider" style="--delay: 0.5s">Or sign up with</div>
+
+                <div class="oauth-buttons" style="--delay: 0.6s">
+                    <button class="oauth-button google" type="button" onclick="handleOAuthRegister('google')">
+                        <i class="fab fa-google"></i>
+                        <span>Sign up with Google</span>
+                    </button>
+                    <button class="oauth-button facebook" type="button" onclick="handleOAuthRegister('facebook')">
+                        <i class="fab fa-facebook"></i>
+                        <span>Sign up with Facebook</span>
+                    </button>
+                    <button class="oauth-button microsoft" type="button" onclick="handleOAuthRegister('microsoft')">
+                        <i class="fab fa-microsoft"></i>
+                        <span>Sign up with Microsoft</span>
+                    </button>
+                </div>
+
+                <div class="footer-links" style="--delay: 0.7s">
+                    By signing up, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ... (Same script as original, minimal implementation for UI interactions)
+        // Configuration
+        const CONFIG = { API_BASE_URL: '/api/v1', MIN_PASSWORD_LENGTH: 8 };
+
+        // Simple Tab Switching
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const targetTab = button.dataset.tab;
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                document.querySelectorAll('.form-content').forEach(content => content.classList.remove('active'));
+                document.getElementById(`${targetTab}Form`).classList.add('active');
+            });
+        });
+
+        // Password Toggle
+        document.querySelectorAll('.password-toggle').forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                const targetId = toggle.dataset.target;
+                const input = document.getElementById(targetId);
+                const icon = toggle.querySelector('i');
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    icon.classList.remove('fa-eye');
+                    icon.classList.add('fa-eye-slash');
+                } else {
+                    input.type = 'password';
+                    icon.classList.remove('fa-eye-slash');
+                    icon.classList.add('fa-eye');
+                }
+            });
+        });
+
+        // Login Submit (Minimal)
+        document.getElementById('loginFormElement').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('.submit-button');
+            btn.classList.add('loading');
+            
+            // Simulation
+            setTimeout(() => {
+                const email = document.getElementById('loginEmail').value;
+                const password = document.getElementById('loginPassword').value;
+                
+                fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    btn.classList.remove('loading');
+                    if(data.success) {
+                        // Success -> Redirect to dashboard?
+                        // Or client-app should handle this via OAuth2 callback flow?
+                        // For now, simple redirect simulation
+                        alert('Login Success: ' + JSON.stringify(data));
+                        if(data.data && data.data.redirect_url) {
+                            window.location.href = data.data.redirect_url; 
+                        }
+                    } else {
+                        alert('Login Failed: ' + data.message);
+                    }
+                })
+                .catch(err => {
+                    btn.classList.remove('loading');
+                    console.error(err);
+                    alert('Error: ' + err.message);
+                });
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
