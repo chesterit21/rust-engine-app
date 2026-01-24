@@ -92,9 +92,13 @@ impl DocumentService {
         match extension.as_str() {
             "pdf" => Ok("pdf".to_string()),
             "docx" | "doc" => Ok("docx".to_string()),
-            "txt" => Ok("text".to_string()),
-            "md" => Ok("markdown".to_string()),
+            "pptx" | "ppt" => Ok("pptx".to_string()),
+            "xlsx" | "xls" => Ok("xlsx".to_string()),
+            "rtf" => Ok("rtf".to_string()),
+            "txt" => Ok("txt".to_string()),
+            "md" | "markdown" => Ok("md".to_string()),
             "html" | "htm" => Ok("html".to_string()),
+            "png" | "jpg" | "jpeg" | "tiff" | "bmp" => Ok(extension),
             _ => Err(ApiError::BadRequest(format!(
                 "Unsupported file type: {}",
                 extension

@@ -1,3 +1,4 @@
+
 [database]
 url = "postgres://postgres:P@ssw0rd@localhost:6432/dms_demo"
 pool_max_size = 10

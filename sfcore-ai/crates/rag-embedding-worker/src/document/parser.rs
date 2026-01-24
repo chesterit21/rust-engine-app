@@ -43,6 +43,7 @@ impl DocumentParser {
             "docx" => Self::parse_docx(path)?,
             "xlsx" | "xls" => Self::parse_excel(path)?,
             "pptx" => Self::parse_pptx(path)?,
+            "png" | "jpg" | "jpeg" | "tiff" | "bmp" => Self::parse_image(path)?,
             "rtf" => Self::parse_rtf(path)?,
             "md" => Self::parse_markdown(path)?,
             "html" | "htm" => Self::parse_html(path)?,
@@ -149,10 +150,11 @@ impl DocumentParser {
 
     /// Parse PPTX (Text Extraction from XML)
     fn parse_pptx(path: &Path) -> Result<(String, DocumentMetadata)> {
+        debug!("Starting PPTX parsing for: {:?}", path);
         // PPTX is a zip file. Slides are in ppt/slides/slideX.xml
         // We will extract text from all slides
-        let file = fs::File::open(path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
+        let file = fs::File::open(path).context("Failed to open PPTX file")?;
+        let mut archive = zip::ZipArchive::new(file).context("Failed to open PPTX as ZIP archive")?;
         let _content = String::new(); // Properly initialize content
         
         // Find all slide XMLs
@@ -165,8 +167,18 @@ impl DocumentParser {
             }
         }
         
+        if slide_files.is_empty() {
+             warn!("No slide files found in PPTX archive");
+        }
+        
         // Sort slides (slide1.xml, slide2.xml, ...)
-        slide_files.sort();
+        slide_files.sort_by(|a, b| {
+            // Natural sort would be better, but standard string sort is okay-ish
+            // Improving sort to handle slide1 vs slide10
+            let a_num = a.trim_start_matches("ppt/slides/slide").trim_end_matches(".xml").parse::<u32>().unwrap_or(0);
+            let b_num = b.trim_start_matches("ppt/slides/slide").trim_end_matches(".xml").parse::<u32>().unwrap_or(0);
+            a_num.cmp(&b_num)
+        });
 
         let mut text_content = String::new();
         for slide_name in slide_files {
@@ -176,8 +188,10 @@ impl DocumentParser {
              
              // Simple regex based XML tag stripping (efficient enough for text extraction)
              let text = Self::strip_xml_tags(&xml);
-             text_content.push_str(&text);
-             text_content.push('\n');
+             if !text.trim().is_empty() {
+                 text_content.push_str(&text);
+                 text_content.push('\n');
+             }
         }
 
         let metadata = DocumentMetadata {
@@ -188,6 +202,43 @@ impl DocumentParser {
         };
 
         Ok((text_content, metadata))
+    }
+
+    /// Parse Image using Tesseract OCR
+    fn parse_image(path: &Path) -> Result<(String, DocumentMetadata)> {
+        debug!("Running OCR on image: {:?}", path);
+        
+        // Check if tesseract is available is hard (cross-platform), so we just try to run it
+        // Command: tesseract <image> stdout
+        let output = std::process::Command::new("tesseract")
+            .arg(path)
+            .arg("stdout")
+            .output();
+            
+        match output {
+            Ok(out) => {
+                if !out.status.success() {
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    warn!("Tesseract failed: {}", err);
+                    return Err(anyhow!("OCR failed: Tesseract returned error code"));
+                }
+                
+                let content = String::from_utf8(out.stdout).context("Invalid UTF-8 from Tesseract")?;
+                
+                let metadata = DocumentMetadata {
+                    file_type: "image/ocr".to_string(),
+                    pages: Some(1),
+                    char_count: content.len(),
+                    encoding: "UTF-8".to_string(),
+                };
+                
+                Ok((content, metadata))
+            },
+            Err(e) => {
+                warn!("Failed to execute tesseract: {}", e);
+                Err(anyhow!("Failed to run OCR. Is Tesseract installed and in PATH? Error: {}", e))
+            }
+        }
     }
 
     /// Parse RTF using rtf-parser

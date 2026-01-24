@@ -44,6 +44,10 @@ impl DocumentLoader {
         match extension.as_deref() {
             // Documents
             Some("txt") | Some("md") | Some("pdf") | Some("docx") | Some("doc") => true,
+            Some("pptx") | Some("ppt") | Some("xlsx") | Some("xls") | Some("rtf") => true,
+            
+            // Images (OCR)
+            Some("png") | Some("jpg") | Some("jpeg") | Some("tiff") | Some("bmp") => true,
             
             // Web
             Some("html") | Some("htm") | Some("xml") => true,

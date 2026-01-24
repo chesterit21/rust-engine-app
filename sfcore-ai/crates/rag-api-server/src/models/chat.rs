@@ -26,7 +26,7 @@ pub struct DocumentUpload {
 
 #[derive(Debug, Serialize)]
 pub struct SessionInfo {
-    pub session_id: String,
+    pub session_id: i32,
     pub user_id: String,
     pub timestamp: DateTime<Utc>,
 }

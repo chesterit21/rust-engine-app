@@ -43,6 +43,10 @@ pulldown-cmark = "0.12"
 scraper = "0.21"
 encoding_rs = "0.8"
 text-splitter = { version = "0.18", features = ["tiktoken-rs"] }
+calamine = "0.24" # Excel (xlsx, xls)
+quick-xml = "0.36" # XML parsing for pptx
+zip = "2.2" # Reading zip files (pptx structure)
+rtf-parser = "0.3" # RTF support
 
 # Utils
 anyhow = "1.0"

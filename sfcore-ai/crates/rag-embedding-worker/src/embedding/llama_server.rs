@@ -3,7 +3,7 @@ use crate::config::LlamaServerConfig;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 use sysinfo::System;
@@ -15,10 +15,7 @@ struct LlamaEmbeddingRequest {
     content: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct LlamaEmbeddingResponse {
-    embedding: Vec<f32>,
-}
+
 
 pub struct LlamaServerManager {
     config: LlamaServerConfig,
@@ -207,9 +204,62 @@ impl LlamaServerManager {
             anyhow::bail!("Embedding request failed: {} - {}", status, body);
         }
         
-        let llama_response: LlamaEmbeddingResponse = response.json().await?;
+        // Dynamic parsing to separate legacy vs new llama-server format
+        let json: serde_json::Value = response.json().await?;
         
-        Ok(llama_response.embedding)
+        // DEBUG: Print full response
+        tracing::debug!("Raw Llama Server response: {}", serde_json::to_string(&json).unwrap_or_default());
+        
+        let embedding: Vec<f32> = if json.is_array() {
+            let arr = json.as_array().unwrap();
+            if arr.is_empty() {
+                anyhow::bail!("Received empty array from llama-server");
+            }
+            
+            let first_item = &arr[0];
+            tracing::debug!("First item structure: {}", serde_json::to_string(first_item).unwrap_or_default());
+            
+            // New Format: [{"index":0, "embedding":[...]}]
+            let emb_field = first_item["embedding"]
+                .as_array()
+                .ok_or_else(|| anyhow!("Missing 'embedding' field in new format API response"))?;
+            
+            tracing::debug!("Embedding field length: {}", emb_field.len());
+            
+            // Check for double nesting [[...]] which sometimes happens with batch requests
+            if !emb_field.is_empty() && emb_field[0].is_array() {
+                tracing::debug!("Detected nested embedding format [[...]]");
+                emb_field[0]
+                    .as_array()
+                    .ok_or_else(|| anyhow!("Invalid nested embedding format"))?
+                    .iter()
+                    .filter_map(|v| v.as_f64().map(|f| f as f32))
+                    .collect()
+            } else {
+                tracing::debug!("Detected flat embedding format [...]");
+                emb_field
+                    .iter()
+                    .filter_map(|v| v.as_f64().map(|f| f as f32))
+                    .collect()
+            }
+        } else {
+            // Legacy Format: {"embedding":[...]}
+            tracing::debug!("Using legacy format parsing");
+            json["embedding"]
+                .as_array()
+                .ok_or_else(|| anyhow!("Missing 'embedding' field in legacy API response"))?
+                .iter()
+                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                .collect()
+        };
+        
+        if embedding.is_empty() {
+             anyhow::bail!("Parsed embedding vector is empty!");
+        }
+        
+        tracing::debug!("Successfully parsed embedding vector, length: {}", embedding.len());
+        
+        Ok(embedding)
     }
 }
 

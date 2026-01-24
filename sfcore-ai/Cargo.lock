@@ -2580,6 +2580,7 @@ dependencies = [
  "axum",
  "base64 0.21.7",
  "bytes",
+ "calamine",
  "chrono",
  "config",
  "docx-rs",
@@ -2597,8 +2598,10 @@ dependencies = [
  "once_cell",
  "pgvector",
  "pulldown-cmark",
+ "quick-xml 0.36.2",
  "rand 0.8.5",
  "reqwest",
+ "rtf-parser",
  "scraper",
  "serde",
  "serde_json",
@@ -2613,6 +2616,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "zip 2.4.2",
 ]
 
 [[package]]
