@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use mime_guess;
 use mime_guess::mime;
 use std::fs;
-use std::path::{Path, PathBuf};
-use tracing::{debug, warn};
+use std::path::Path;
+use tracing::debug;
 
 pub struct DocumentLoader;
 

@@ -1,32 +1,32 @@
 [database]
-url = "postgres://user:password@localhost:5432/dbname"
+url = "postgres://postgres:P@ssw0rd@localhost:6432/dms_demo"
 pool_max_size = 10
 pool_timeout_seconds = 30
 listen_channel = "document_changes"
 
 [embedding]
-model = "AllMiniLML6V2"  # Model name
-dimension = 384  # 384 for AllMiniLML6V2, 1536 for text-embedding-3-small
-batch_size = 32
+model = "C:\\models\\Qwen3-Embedding-0.6B-Q8_0.gguf"  # Model name
+dimension = 1024  # 384 for AllMiniLML6V2, 1536 for text-embedding-3-small
+batch_size = 64 # Optimized for 0.6B model
 
 [chunking]
-size = 512
-overlap = 50
+size = 1024 # Qwen3 context is large (32k), 1024 is a safe balanced default
+overlap = 128
 strategy = "semantic"  # semantic, fixed, recursive
 
 [worker]
 threads = 4
 bulk_batch_size = 10  # Process 10 docs per batch
 processing_timeout_seconds = 300
-document_root_path = "/path/to/documents"
+document_root_path = "E:\\DMS\\Uploads"
 
 [llama_server]
-binary_path = "/path/to/llama-server"  # atau llama-server.exe di Windows
-model_path = "/path/to/models/all-MiniLM-L6-v2-Q4_K_M.gguf"
+binary_path = "C:\\llama-server\\llama-server.exe"  # atau llama-server.exe di Windows
+model_path = "C:\\models\\qwen2.5.gguf"
 host = "127.0.0.1"
 port = 8080
 startup_timeout_seconds = 60
 shutdown_timeout_seconds = 10
 embedding_only = true
-ctx_size = 2048
+ctx_size = 8192 # Increased to support larger chunks (max 32k for Qwen)
 threads = 4

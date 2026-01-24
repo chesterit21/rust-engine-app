@@ -12,7 +12,7 @@ use crate::embedding::LlamaServerManager;
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 pub struct Worker {
     settings: Settings,

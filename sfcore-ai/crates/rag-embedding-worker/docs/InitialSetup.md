@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS rag_document_chunks (
   
   -- semantic search (OpenAI text-embedding-3-small = 1536 dims)
   -- Bisa ganti ke 384 kalau pakai fastembed AllMiniLML6V2
+  -- harus cek demension ya  si model embedding
   embedding vector(384) NOT NULL,
   
   -- metadata tambahan

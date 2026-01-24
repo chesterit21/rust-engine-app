@@ -21,7 +21,7 @@ members = [
     # "sfcore-client-app/sso-server",
 
     # RAG Worker
-    # "crates/rag-embedding-worker",
+    "crates/rag-embedding-worker",
     
     # RAG API Server
     "crates/rag-api-server",
@@ -127,11 +127,11 @@ ipnetwork = "0.20"
 prometheus = "0.13"
 
 # Internal SSO crates
-sso-core = { path = "crates/sso-core" }
-sso-infrastructure = { path = "crates/sso-infrastructure" }
-sso-api = { path = "crates/sso-api" }
-sso-security = { path = "crates/sso-security" }
-sso-shared = { path = "crates/sso-shared" }
+# sso-core = { path = "crates/sso-core" }
+# sso-infrastructure = { path = "crates/sso-infrastructure" }
+# sso-api = { path = "crates/sso-api" }
+# sso-security = { path = "crates/sso-security" }
+# sso-shared = { path = "crates/sso-shared" }
 
 # ============================================================================
 # Build Profiles

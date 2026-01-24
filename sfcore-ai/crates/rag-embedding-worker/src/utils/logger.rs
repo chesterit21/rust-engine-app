@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::Level;
+
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{
     fmt,

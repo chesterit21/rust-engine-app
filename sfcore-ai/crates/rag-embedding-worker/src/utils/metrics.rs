@@ -105,17 +105,20 @@ impl Default for Metrics {
 }
 
 /// Timer helper untuk measure duration
+#[allow(dead_code)]
 pub struct Timer {
     start: Instant,
 }
 
 impl Timer {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             start: Instant::now(),
         }
     }
     
+    #[allow(dead_code)]
     pub fn elapsed(&self) -> Duration {
         self.start.elapsed()
     }

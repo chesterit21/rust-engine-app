@@ -1,6 +1,6 @@
 use super::{DbPool, DocumentChunk, DocumentFile, IngestionLog, IngestionStatus};
 use anyhow::Result;
-use pgvector::Vector;
+
 use sqlx::Row;
 use tracing::debug;
 

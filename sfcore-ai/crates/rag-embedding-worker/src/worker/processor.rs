@@ -9,7 +9,7 @@ use pgvector::Vector;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 pub struct DocumentProcessor {
     settings: Settings,
@@ -174,7 +174,9 @@ impl DocumentProcessor {
     
     /// Resolve file path (handle relative paths)
     fn resolve_file_path(&self, path_str: &str) -> Result<PathBuf> {
-        let path = PathBuf::from(path_str);
+        // Strip "/resource/" prefix if present (fix for DMS path mismatch)
+        let relative_path_str = path_str.trim_start_matches("/resource/").trim_start_matches('/');
+        let path = PathBuf::from(relative_path_str);
         
         if path.is_absolute() {
             Ok(path)

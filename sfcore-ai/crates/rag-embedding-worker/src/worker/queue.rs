@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 pub enum TaskPriority {
     Low = 0,
     Normal = 1,
+    #[allow(dead_code)]
     High = 2,
 }
 
@@ -12,6 +13,7 @@ pub enum TaskPriority {
 pub struct Task {
     pub document_id: i32,
     pub priority: TaskPriority,
+    #[allow(dead_code)]
     pub retry_count: u32,
 }
 
@@ -61,6 +63,7 @@ impl TaskQueue {
     }
     
     /// Get queue size
+    #[allow(dead_code)]
     pub async fn size(&self) -> usize {
         let queue = self.queue.lock().await;
         queue.len()

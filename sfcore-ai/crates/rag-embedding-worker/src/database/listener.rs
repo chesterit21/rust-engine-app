@@ -3,9 +3,9 @@ use anyhow::Result;
 use futures::StreamExt;
 use serde_json;
 use tokio::sync::mpsc;
-use tokio_postgres::{AsyncMessage, Config};
+use tokio_postgres::AsyncMessage;
 use tracing::{debug, error, info, warn};
-use std::time::Duration;
+
 use crate::config::DatabaseConfig;
 
 pub struct NotificationListener {
@@ -43,7 +43,7 @@ impl NotificationListener {
                     info!("✅ Listener connected");
                     
                     // Spawn connection polling
-                    let (close_tx, mut close_rx) = mpsc::unbounded_channel::<()>();
+                    let (_close_tx, mut _close_rx) = mpsc::unbounded_channel::<()>();
                     
                     // We need to poll the connection for it to work.
                     // But we also need to get notifications. 
