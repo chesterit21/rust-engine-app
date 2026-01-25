@@ -1,3 +1,5 @@
+/// embedding_service.rs
+
 use crate::config::EmbeddingConfig;
 use crate::utils::error::ApiError;
 use anyhow::{Context, Result};
@@ -6,16 +8,23 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 // Import trait from conversation manager
 use crate::services::conversation::manager::EmbeddingProvider;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[derive(Debug, Serialize)]
 struct EmbeddingRequest {
-    content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    input: Option<String>,
+    input: String,
+    model: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct EmbeddingResponse {
+    data: Vec<EmbeddingData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmbeddingData {
     embedding: Vec<f32>,
 }
 
@@ -24,6 +33,8 @@ pub struct EmbeddingService {
     client: Client,
     base_url: String,
     dimension: usize,
+    model_name: String,
+    cache: Arc<RwLock<HashMap<String, Vec<f32>>>>, // Cache embeddings
 }
 
 impl EmbeddingService {
@@ -35,6 +46,8 @@ impl EmbeddingService {
                 .unwrap_or_else(|_| Client::new()),
             base_url: llm_base_url,
             dimension: config.dimension,
+            model_name: config.model,
+            cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
     
@@ -45,15 +58,24 @@ impl EmbeddingService {
 
     /// Internal method returning anyhow::Result
     async fn embed_internal(&self, text: &str) -> Result<Vec<f32>> {
-        debug!("Generating embedding for {} chars", text.len());
+        // 1. Check Cache
+        {
+            let cache = self.cache.read().await;
+            if let Some(embedding) = cache.get(text) {
+                debug!("Cache HIT for embedding ({:.20}...) - skipping API call", text);
+                return Ok(embedding.clone());
+            }
+        }
+
+        debug!("Generating embedding for {} chars using model {}", text.len(), self.model_name);
         
         let request = EmbeddingRequest {
-            content: text.to_string(),
-            input: Some(text.to_string()), // Send both for compatibility
+            input: text.to_string(),
+            model: self.model_name.clone(),
         };
         
-        // Try /embedding first
-        let url = format!("{}/embedding", self.base_url);
+        // Use standard /v1/embeddings endpoint
+        let url = format!("{}/v1/embeddings", self.base_url);
         let response = self
             .client
             .post(&url)
@@ -68,59 +90,20 @@ impl EmbeddingService {
             anyhow::bail!("Embedding API error ({}): {}", status, body);
         }
         
-        let json_value: serde_json::Value = response
+        // Parse standard OpenAI response format
+        let response_body: EmbeddingResponse = response
             .json()
             .await
-            .context("Failed to parse embedding response as JSON")?;
-        
-        // Robust parsing logic
-        let embedding = if json_value.is_array() {
-            // OpenAI format: [{"embedding": [...]}] or just [...]
-            let arr = json_value.as_array().unwrap();
-            if arr.is_empty() {
-                anyhow::bail!("Empty array returned from embedding server");
-            }
+            .context("Failed to parse embedding response (expected OpenAI format)")?;
             
-            if arr[0].is_object() && arr[0]["embedding"].is_array() {
-                arr[0]["embedding"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|v: &serde_json::Value| v.as_f64().map(|f| f as f32))
-                    .collect::<Vec<f32>>()
-            } else {
-                // Direct array of floats
-                arr.iter()
-                    .filter_map(|v: &serde_json::Value| v.as_f64().map(|f| f as f32))
-                    .collect::<Vec<f32>>()
-            }
-        } else if json_value.is_object() && json_value["embedding"].is_array() {
-            // Standard llama.cpp format: {"embedding": [...]}
-            json_value["embedding"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|v: &serde_json::Value| v.as_f64().map(|f| f as f32))
-                .collect::<Vec<f32>>()
-        } else if json_value.is_object() && json_value["data"].is_array() {
-             // OpenAI data format: {"data": [{"embedding": [...]}]}
-             let data = json_value["data"].as_array().unwrap();
-             if !data.is_empty() && data[0]["embedding"].is_array() {
-                 data[0]["embedding"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|v: &serde_json::Value| v.as_f64().map(|f| f as f32))
-                    .collect::<Vec<f32>>()
-             } else {
-                 anyhow::bail!("Unrecognized embedding response format: {}", json_value);
-             }
-        } else {
-            anyhow::bail!("Unrecognized embedding response format: {}", json_value);
-        };
+        if response_body.data.is_empty() {
+            anyhow::bail!("Empty data array returned from embedding server");
+        }
+        
+        let embedding = &response_body.data[0].embedding;
         
         if embedding.is_empty() {
-            anyhow::bail!("Generated embedding is empty");
+            anyhow::bail!("Generated embedding vector is empty");
         }
 
         if embedding.len() != self.dimension {
@@ -130,20 +113,37 @@ impl EmbeddingService {
                 embedding.len()
             );
         }
-        
-        Ok(embedding)
-    }
-    
-    /// Generate embeddings untuk batch texts
-    pub async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>, ApiError> {
-        let mut embeddings = Vec::with_capacity(texts.len());
-        
-        for text in texts {
-            let embedding = self.embed(&text).await?;
-            embeddings.push(embedding);
+
+        // 2. Store in Cache
+        {
+            let mut cache = self.cache.write().await;
+            cache.insert(text.to_string(), embedding.clone());
         }
         
-        Ok(embeddings)
+        Ok(embedding.clone())
+    }
+    
+    /// Generate embeddings untuk batch texts (Parallel Optimized)
+    pub async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>, ApiError> {
+        use futures::future::join_all;
+        
+        debug!("Generating batch embeddings for {} texts", texts.len());
+
+        // Parallel embedding generation
+        let futures: Vec<_> = texts.into_iter()
+            .map(|text| {
+                // Clone self for async block (ARC)
+                let service = self.clone();
+                async move {
+                    service.embed(&text).await
+                }
+            })
+            .collect();
+        
+        let results = join_all(futures).await;
+        
+        // Collect results and propagate first error
+        results.into_iter().collect()
     }
 
     /// Embed with weights (Internal logic for trait)

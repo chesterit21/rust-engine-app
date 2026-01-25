@@ -2,11 +2,13 @@ use anyhow::{Context, Result};
 use tracing::{debug, info};
 use crate::models::chat::ChatMessage;
 use crate::utils::similarity::cosine_similarity;
-use crate::services::query_analyzer::{QueryAnalyzer, QueryIntent};
 use super::types::{
     ConversationState, RetrievalDecision, RetrievalReason, 
     SkipReason, SystemContextComponents, WeightedEmbeddingConfig
 };
+
+// Import query analyzer
+use crate::services::query_analyzer::{QueryAnalyzer, QueryIntent};
 
 pub struct ContextBuilder {
     base_instruction: String,
@@ -47,27 +49,39 @@ Guidelines:
         current_document_id: Option<i64>,
         current_embedding: Option<&Vec<f32>>,
     ) -> Result<RetrievalDecision> {
-        // 1. Analyze Intent (POC Meta-Question Enhancement)
+        // STEP 1: Analyze query intent FIRST
         let intent = QueryAnalyzer::analyze_intent(current_message);
         
+        // STEP 2: Handle meta-questions (overview/summary)
         match intent {
             QueryIntent::DocumentOverview | QueryIntent::DocumentSummary => {
-                debug!("Meta-question detected, triggering MetadataQuery retrieval");
+                info!(
+                    "Meta-question detected ({:?}), will fetch document metadata instead of vector search",
+                    intent
+                );
                 return Ok(RetrievalDecision::Retrieve {
                     reason: RetrievalReason::DocumentMetadataQuery,
-                    context_aware: false,
+                    context_aware: false, // No need for weighted embedding
                 });
             }
             QueryIntent::Clarification => {
-                debug!("Clarification intent detected, triggering ContextAware retrieval");
-                return Ok(RetrievalDecision::Retrieve {
-                    reason: RetrievalReason::ClarificationWithContext,
-                    context_aware: true,
-                });
+                // Use conversation history for context
+                if state.messages.len() >= 2 {
+                    info!("Clarification question detected, using conversation context");
+                    return Ok(RetrievalDecision::Retrieve {
+                        reason: RetrievalReason::ClarificationWithContext,
+                        context_aware: true, // Use weighted embedding with history
+                    });
+                }
+                // If no history, treat as first message
             }
-            _ => {} // Continue to normal logic for SpecificContent
+            QueryIntent::SpecificContent => {
+                // Continue with normal vector search logic
+                debug!("Specific content question, proceeding with vector search");
+            }
         }
-
+        
+        // STEP 3: Normal retrieval logic for specific content questions
         if state.messages.is_empty() {
             debug!("First message in session, need retrieval");
             return Ok(RetrievalDecision::Retrieve {

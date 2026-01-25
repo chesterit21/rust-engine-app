@@ -84,7 +84,12 @@ pub async fn upload_handler(
     let repository = Arc::new(crate::database::Repository::new(state.db_pool.clone()));
     let embedding_service = state.embedding_service.clone();
     let event_bus = state.event_bus.clone();
-    let doc_service = crate::services::DocumentService::new(repository, embedding_service);
+    let doc_service = crate::services::DocumentService::new(
+        repository,
+        embedding_service,
+        state.llm_service.clone(),
+        &state.settings.rag,
+    );
     
     // Spawn background task
     tokio::spawn(async move {

@@ -6,7 +6,7 @@ use axum::{
 use futures::stream::{self, Stream};
 use std::convert::Infallible;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::handlers::search::DocumentInfo;
 use crate::models::chat::ChatRequest;
@@ -22,7 +22,7 @@ pub async fn chat_stream_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ChatRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (axum::http::StatusCode, String)> {
-    info!(
+    debug!(
         "Chat stream request: session_id={}, user_id={}, document_id={:?}",
         req.session_id, req.user_id, req.document_id
     );
@@ -35,96 +35,41 @@ pub async fn chat_stream_handler(
         ));
     }
 
-    // Clone for async move
     let conversation_manager = state.conversation_manager.clone();
     let session_id = req.session_id;
     let user_id = req.user_id;
     let message = req.message.clone();
     let document_id = req.document_id;
     
-    // Cast user_id and document_id to i32 for existing services if needed, 
-    // BUT ConversationManager uses i64 internally (based on Step 261 manager.rs).
-    // Let's check manager.rs: handle_message takes (SessionId, i32, String, Option<i32>).
-    // Wait, in Step 261 manager.rs:
-    // pub async fn handle_message(&self, session_id: SessionId, user_id: i32, ...)
-    // But ChatRequest has user_id: i64.
-    // I need to cast to i32 in handle_message call.
-    // Wait, Step 261 manager.rs actually had `user_id: i32`.
-    // My previous manager.rs implementation (Step 261) used i32?
-    // Let's double check my manager.rs write.
-    // In Step 261 I wrote `handle_message` taking `user_id: i32`.
-    // It should probably take `i64` if `types.rs` says `user_id: i64`.
-    // `conversation::types::ConversationState` has `user_id: i64`.
-    // My manager.rs `handle_message` took `i32` and cast it to `i64`.
-    // That means I should pass `i32` here?
-    // `ChatRequest.user_id` is `i64`.
-    // If I pass `req.user_id as i32`, I might lose data if it's large.
-    // Ideally `manager.rs` should take `i64`.
-    // I will check if I can modify this handler to cast, OR update `manager.rs`.
-    // Updating `manager.rs` to take `i64` is better.
-    // But for now, safe to cast if user_id < 2^31.
-    // I'll stick to the plan `PART-3.md` code which just calls `manager.handle_message(session_id, user_id, message, document_id)`.
-    // If mismatch, compiler will complain.
-    // I will assume `PART-3.md` implies `manager.rs` takes compatible types.
-    // Actually, looking at `PART-3.md` Step 6 (manager.rs) in docs...
-    // Step 6 in `PART-2.md` `manager.rs` signature: `pub async fn handle_message(&self, session_id: SessionId, user_id: i64, message: String, document_id: Option<i64>)`.
-    // So `manager.rs` SHOULD take `i64`.
-    // Did I write `i32` in `manager.rs`?
-    // In Step 795 (manager.rs write), I wrote:
-    // `pub async fn handle_message(&self, session_id: SessionId, user_id: i32, message: String, document_id: Option<i32>)`
-    // BECAUSE I was adapting to `rag_service` which used `i32`.
-    // AND I cast `user_id as i64` inside.
-    // So `manager.rs` expects `i32`.
-    // BUT `ChatRequest` provides `i64`.
-    // So I MUST cast here or change `manager.rs`.
-    // I will convert here: `req.user_id as i32`.
-    // Be careful with `document_id` too. `request.document_id` is `i64`. `manager` expects `Option<i32>`.
-    
     // Create SSE stream
-    let stream = stream::unfold(
-        (conversation_manager, session_id, user_id, message, document_id, false),
-        |(manager, session_id, user_id, message, document_id, mut done): (Arc<ConversationManager>, crate::models::chat::SessionId, i64, String, Option<i64>, bool)| async move {
-            if done {
-                return None;
-            }
-
-            // Handle message through conversation manager
-            match manager.handle_message(session_id, user_id, message, document_id).await {
-                Ok(response) => {
-                    // Send response as stream events
-                    done = true;
-                    
-                    // Event 1: Message content
-                    let message_event = Event::default()
-                        .event("message")
-                        .data(response);
-                    
-                    // Event 2: Done signal
-                    let _done_event = Event::default()
-                        .event("done")
-                        .data("[DONE]");
-                    
-                    Some((
-                        Ok(message_event),
-                        (manager, session_id, user_id, String::new(), document_id, done),
-                    ))
+    let stream = async_stream::stream! {
+        // Execute manager logic which now returns a Stream
+        match conversation_manager.handle_message(session_id, user_id, message, document_id).await {
+            Ok(mut response_stream) => {
+                use futures::StreamExt;
+                
+                // Forward chunks as they arrive
+                while let Some(chunk_res) = response_stream.next().await {
+                    match chunk_res {
+                        Ok(chunk) => {
+                            yield Ok(Event::default().event("message").data(chunk));
+                        }
+                        Err(e) => {
+                            error!("Stream error: {}", e);
+                            yield Ok(Event::default().event("error").data(format!("{{\"message\": \"{}\"}}", e)));
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!("Error handling message: {}", e);
-                    done = true;
-                    
-                    let error_event = Event::default()
-                        .event("error")
-                        .data(format!("{{\"message\": \"{}\"}}", e));
-                    
-                    Some((
-                        Ok(error_event),
-                        (manager, session_id, user_id, String::new(), document_id, done),
-                    ))
-                }
+                
+                // Signal done
+                yield Ok(Event::default().event("done").data("[DONE]"));
             }
-        },
-    );
+            Err(e) => {
+                error!("Error handling message: {}", e);
+                yield Ok(Event::default().event("error").data(format!("{{\"message\": \"{}\"}}", e)));
+            }
+        }
+    };
 
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }

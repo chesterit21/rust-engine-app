@@ -1,11 +1,12 @@
+/// manager.rs
 use anyhow::{Context, Result};
 use tracing::{debug, error, info, warn};
-use crate::models::chat::ChatMessage;
+use crate::models::chat::{ChatMessage, SessionId};
+use crate::database::models::{DocumentMetadata, DocumentOverview};
 use super::cache::ConversationCache;
 use super::context_builder::ContextBuilder;
 use super::token_counter::TokenCounter;
-use super::types::{ConversationState, RetrievalDecision};
-use crate::models::chat::SessionId;
+use super::types::{ConversationState, RetrievalDecision, RetrievalReason};
 
 /// Trait for embedding service (break circular dependency)
 #[async_trait::async_trait]
@@ -29,13 +30,28 @@ pub trait RetrievalProvider: Send + Sync {
         embedding: &[f32],
         document_id: Option<i64>,
     ) -> Result<Vec<RetrievalChunk>>;
+
+    // ============ NEW METHODS FOR META-QUESTIONS ============
+    
+    /// Get document metadata (for overview questions)
+    async fn get_document_metadata(&self, document_id: i32) -> Result<DocumentMetadata>;
+    
+    /// Get first N chunks of document (for overview generation)
+    async fn get_document_overview_chunks(&self, document_id: i32, limit: i32) -> Result<Vec<RetrievalChunk>>;
+    
+    /// Get complete document overview (metadata + first chunks)
+    async fn get_document_overview(&self, document_id: i32, chunk_limit: i32) -> Result<DocumentOverview>;
 }
+
+use std::pin::Pin;
+use futures::stream::Stream;
 
 /// Trait for LLM service
 #[async_trait::async_trait]
 pub trait LlmProvider: Send + Sync {
     async fn generate(&self, messages: &[ChatMessage]) -> Result<String>;
-    async fn summarize_chunks(&self, chunks: &[RetrievalChunk]) -> Result<String>;
+    async fn generate_stream(&self, messages: &[ChatMessage]) -> Result<Pin<Box<dyn Stream<Item = Result<String, anyhow::Error>> + Send>>>;
+    async fn summarize_chunks(&self, chunks: &[RetrievalChunk], query: &str) -> Result<String>;
 }
 
 /// Chunk result from retrieval (define here to avoid circular dep)
@@ -58,6 +74,7 @@ pub struct ConversationManager {
     retrieval_provider: Box<dyn RetrievalProvider>,
     llm_provider: Box<dyn LlmProvider>,
     logger: ActivityLogger,
+    stream_enabled: bool,
 }
 
 impl ConversationManager {
@@ -66,14 +83,17 @@ impl ConversationManager {
         retrieval_provider: Box<dyn RetrievalProvider>,
         llm_provider: Box<dyn LlmProvider>,
         logger: ActivityLogger,
+        stream_enabled: bool,
+        system_prompt: String,
     ) -> Self {
         Self {
             cache: ConversationCache::new(),
-            context_builder: ContextBuilder::default(),
+            context_builder: ContextBuilder::new(system_prompt),
             embedding_provider,
             retrieval_provider,
             llm_provider,
             logger,
+            stream_enabled,
         }
     }
 
@@ -116,16 +136,22 @@ impl ConversationManager {
     }
 
     pub async fn handle_message(
-        &self,
+        self: std::sync::Arc<Self>,
         session_id: SessionId,
         user_id: i64,
         message: String,
         document_id: Option<i64>,
-    ) -> Result<String> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<String, anyhow::Error>> + Send>>> { // 1. Log Entry (Persistent)
         let start_time = Instant::now();
-        info!("Handling message for session {}, user {}", session_id, user_id);
+        
+        self.logger.log(
+            ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
+                .message("PESAN MASUK")
+                .build()
+        );
 
-        // 1. Log Initial Payload (RequestReceived)
+        // 2. Load History
+        let mut state = self.get_or_create_session(session_id, user_id, document_id).await?;
         self.logger.log(
             ActivityLog::builder(session_id, user_id, ActivityType::RequestReceived)
                 .message(&message)
@@ -133,8 +159,6 @@ impl ConversationManager {
                 .status(ActivityStatus::Info)
                 .build()
         );
-
-        let mut state = self.get_or_create_session(session_id, user_id, document_id).await?;
 
         // 2. Sliding Window Log
         if state.needs_window_enforcement() {
@@ -147,14 +171,23 @@ impl ConversationManager {
 
         self.enforce_sliding_window(&mut state)?;
 
+        // 3. Generate Embedding
+        self.logger.log(
+            ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
+                .message("KIRIM KE MODEL EMBEDDING")
+                .build()
+        );
+
         let current_embedding = self.embedding_provider
             .embed(&message)
             .await
-            .map_err(|e| {
-                error!("Embedding failed: {:?}", e); // Log full debug info including context
-                e
-            })
-            .context("Failed to embed current message")?;
+            .context("Failed to generate embedding")?;
+
+        self.logger.log(
+            ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
+                .message("SELESAI MODEL EMBEDDING")
+                .build()
+        );
 
         let decision = self.context_builder.decide_retrieval(
             &state,
@@ -202,7 +235,7 @@ impl ConversationManager {
         self.manage_tokens(&mut state, &system_context).await?;
         let token_count_after = state.metadata.total_tokens_last;
 
-        if token_count_before > 20_000 {
+        if token_count_before > 24_000 {
             self.logger.log(
                 ActivityLog::builder(session_id, user_id, ActivityType::TokenOverflow)
                     .status(ActivityStatus::Warning)
@@ -212,46 +245,92 @@ impl ConversationManager {
         }
 
         let llm_messages = self.prepare_llm_payload(&state, &system_context);
-
         let llm_start = Instant::now();
-        let assistant_response = match self.call_llm_with_retry(&llm_messages).await {
-            Ok(response) => response,
-            Err(e) => {
-                // 6. Log LLM Error
-                self.logger.log(
-                    ActivityLog::builder(session_id, user_id, ActivityType::LlmError)
-                        .status(ActivityStatus::Error)
-                        .error(e.to_string(), "LlmCallFailed")
+        
+        // Clone things needed for the async stream block
+        let manager = self.clone();
+        // State is moved into the block
+
+        let stream = async_stream::try_stream! {
+            let mut full_response = String::new();
+
+            if manager.stream_enabled {
+                manager.logger.log(
+                    ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
+                        .message("KIRIM KE MODEL UTAMA")
                         .build()
                 );
-                return Err(e);
+                
+                let mut stream = manager.llm_provider.generate_stream(&llm_messages).await?;
+                
+                manager.logger.log(
+                    ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
+                        .message("LLM SUDAH RESPONSE")
+                        .build()
+                );
+                
+                use futures::StreamExt;
+                while let Some(chunk_res) = stream.next().await {
+                    match chunk_res {
+                        Ok(chunk) => {
+                            full_response.push_str(&chunk);
+                            yield chunk;
+                        }
+                        Err(e) => {
+                            // Convert error to anyhow::Error and yield (implicitly by ? in try_stream)
+                            Err(e)?;
+                        }
+                    }
+                }
+            } else {
+                manager.logger.log(
+                    ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
+                        .message("KIRIM KE MODEL UTAMA")
+                        .build()
+                );
+                
+                let response = manager.call_llm_with_retry(&llm_messages).await?;
+                
+                manager.logger.log(
+                    ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
+                        .message("LLM SUDAH RESPONSE")
+                        .build()
+                );
+                
+                full_response = response.clone();
+                yield response;
             }
+            
+            info!("DONE-MEMBERIKAN-JAWABAN - LLM response completed");
+
+            // Post-processing (Save History & Log)
+            let llm_duration = llm_start.elapsed().as_millis() as i32;
+            let total_duration = start_time.elapsed().as_millis() as i32;
+
+            // Update state
+            let mut final_state = state;
+            final_state.messages.push(ChatMessage::assistant(&full_response));
+            final_state.last_query_embedding = Some(current_embedding);
+            final_state.metadata.total_messages += 2;
+            final_state.touch();
+
+            manager.cache.set(session_id, final_state);
+
+            // 7. Log Final Completion (MessageSent)
+            manager.logger.log(
+                ActivityLog::builder(session_id, user_id, ActivityType::MessageSent)
+                    .message(&message)
+                    .response(&full_response)
+                    .token_count(token_count_after as i32)
+                    .processing_time(total_duration)
+                    .llm_duration(llm_duration)
+                    .retrieval_duration(retrieval_duration)
+                    .document_id(document_id.unwrap_or(0))
+                    .build()
+            );
         };
-        let llm_duration = llm_start.elapsed().as_millis() as i32;
 
-        state.messages.push(ChatMessage::assistant(&assistant_response));
-        state.last_query_embedding = Some(current_embedding);
-        state.metadata.total_messages += 2;
-        state.touch();
-
-        self.cache.set(session_id, state);
-
-        let total_duration = start_time.elapsed().as_millis() as i32;
-
-        // 7. Log Final Completion (MessageSent)
-        self.logger.log(
-            ActivityLog::builder(session_id, user_id, ActivityType::MessageSent)
-                .message(&message)
-                .response(&assistant_response)
-                .token_count(token_count_after as i32)
-                .processing_time(total_duration)
-                .llm_duration(llm_duration)
-                .retrieval_duration(retrieval_duration)
-                .document_id(document_id.unwrap_or(0))
-                .build()
-        );
-
-        Ok(assistant_response)
+        Ok(Box::pin(stream))
     }
 
     fn enforce_sliding_window(&self, state: &mut ConversationState) -> Result<()> {
@@ -288,8 +367,61 @@ impl ConversationManager {
                 Ok(state.system_context.clone())
             }
             RetrievalDecision::Retrieve { reason, context_aware } => {
-                info!("Performing retrieval: {:?}", reason);
-                state.metadata.total_retrievals += 1;
+                match reason {
+                    // ============ NEW: Handle DocumentMetadataQuery ============
+                    RetrievalReason::DocumentMetadataQuery => {
+                        info!("Processing document metadata query (overview/summary question)");
+                        
+                        if let Some(doc_id) = document_id {
+                            // Log metadata retrieval start
+                            self.logger.log(
+                                ActivityLog::builder(state.session_id, state.user_id, ActivityType::ProcessingStage)
+                                    .message("FETCH DOCUMENT METADATA")
+                                    .build()
+                            );
+                            
+                            // Get document overview (metadata + first 5 chunks)
+                            let overview = self.retrieval_provider
+                                .get_document_overview(doc_id as i32, 5)
+                                .await
+                                .context("Failed to fetch document overview")?;
+                            
+                            // Build context from metadata + first chunks
+                            let context_text = self.build_metadata_context(&overview);
+                            
+                            // Build system context (no need for LLM summarization here)
+                            let system_context = self.context_builder.build_system_context(
+                                &context_text,
+                                Some(&format!("Document: {}", overview.metadata.title)),
+                            );
+                            
+                            state.system_context = system_context.clone();
+                            state.last_retrieval_summary = context_text;
+                            state.document_id = document_id;
+                            state.metadata.total_retrievals += 1;
+                            
+                            // Log completion
+                            self.logger.log(
+                                ActivityLog::builder(state.session_id, state.user_id, ActivityType::ProcessingStage)
+                                    .message("METADATA FETCH COMPLETED")
+                                    .build()
+                            );
+                            
+                            return Ok(system_context);
+                        } else {
+                            // No document_id provided
+                            let error_msg = "Untuk menjawab pertanyaan tentang dokumen, \
+                                            silakan upload atau pilih dokumen terlebih dahulu.";
+                            
+                            state.system_context = error_msg.to_string();
+                            return Ok(error_msg.to_string());
+                        }
+                    }
+                    // ============ END NEW ============
+
+                    _ => {
+                        info!("Performing retrieval: {:?}", reason);
+                        state.metadata.total_retrievals += 1;
 
                 let query_embedding = if *context_aware {
                     let context_text = self.context_builder
@@ -320,12 +452,13 @@ impl ConversationManager {
                                     .error(e.to_string(), "RetrievalProviderError")
                                     .build()
                             );
+                            error!("Retrieval provider failed: {:?}", e);
                             return Err(e).context("Retrieval failed");
                         }
                     };
 
                 let summary = self.llm_provider
-                    .summarize_chunks(&chunks)
+                    .summarize_chunks(&chunks, current_message)
                     .await
                     .context("Failed to summarize chunks")?;
 
@@ -333,12 +466,21 @@ impl ConversationManager {
                     &summary,
                     document_id.map(|id| format!("Document ID: {}", id)).as_deref(),
                 );
+                
+                // Log Prompt Generation
+                self.logger.log(
+                    ActivityLog::builder(state.session_id, state.user_id, ActivityType::ProcessingStage)
+                        .message("GENERATE MESSAGE PROMPT + CHUNK")
+                        .build()
+                );
 
                 state.system_context = system_context.clone();
                 state.last_retrieval_summary = summary;
                 state.document_id = document_id;
 
                 Ok(system_context)
+                    }
+                }
             }
         }
     }
@@ -462,5 +604,51 @@ impl ConversationManager {
 
     pub fn logger(&self) -> &ActivityLogger {
         &self.logger
+    }
+
+    /// Build context from document metadata and first chunks
+    /// Used for meta-questions like "what is this document about?"
+    fn build_metadata_context(&self, overview: &DocumentOverview) -> String {
+        let metadata = &overview.metadata;
+        
+        let mut context = String::new();
+        
+        // Add document metadata
+        context.push_str("=== INFORMASI DOKUMEN ===\n");
+        context.push_str(&format!("Judul: {}\n", metadata.title));
+        
+        if let Some(desc) = &metadata.description {
+            context.push_str(&format!("Deskripsi: {}\n", desc));
+        }
+        
+        if let Some(summary) = &metadata.auto_summary {
+            context.push_str(&format!("\nRingkasan:\n{}\n", summary));
+        }
+        
+        context.push_str(&format!("\nTotal bagian: {}\n", metadata.total_chunks));
+        
+        if let Some(size) = metadata.file_size {
+            let size_kb = size as f64 / 1024.0;
+            context.push_str(&format!("Ukuran file: {:.1} KB\n", size_kb));
+        }
+        
+        // Add first chunks as preview
+        if !overview.first_chunks.is_empty() {
+            context.push_str("\n=== CUPLIKAN AWAL DOKUMEN ===\n\n");
+            
+            for (i, chunk) in overview.first_chunks.iter().enumerate() {
+                // Limit preview to first 300 characters per chunk
+                let preview = chunk.content
+                    .chars()
+                    .take(300)
+                    .collect::<String>();
+                
+                let ellipsis = if chunk.content.len() > 300 { "..." } else { "" };
+                
+                context.push_str(&format!("[Bagian {}]\n{}{}\n\n", i + 1, preview, ellipsis));
+            }
+        }
+        
+        context
     }
 }

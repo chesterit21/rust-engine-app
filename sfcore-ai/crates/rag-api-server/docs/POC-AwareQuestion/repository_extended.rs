@@ -4,6 +4,8 @@ use pgvector::Vector;
 use sqlx::{Row, FromRow};
 use tracing::debug;
 use chrono::{DateTime, Utc};
+
+// Import new models
 use super::models::{DocumentMetadata, DocumentOverview};
 
 pub struct Repository {
@@ -162,13 +164,13 @@ impl Repository {
         let chunk = sqlx::query_as::<_, DocumentChunk>(
             r#"
             SELECT 
-                c.chunk_id,
+                c.id as chunk_id,
                 c.document_id,
                 d."DocumentTitle" as document_title,
                 c.content,
-                1.0 as similarity, -- Artificial similarity for forced inclusion
+                1.0 as similarity,
                 c.chunk_index,
-                NULL::int as page_number
+                c.page_number
             FROM rag_document_chunks c
             JOIN "TblDocuments" d ON d."Id" = c.document_id
             WHERE c.document_id = $1 AND c.chunk_index = 0
@@ -181,10 +183,11 @@ impl Repository {
         
         Ok(chunk)
     }
-
+    
     // ============ NEW METHODS FOR META-QUESTION HANDLING ============
     
     /// Get document metadata for overview questions
+    /// Used when user asks "what is this document about?"
     pub async fn get_document_metadata(
         &self,
         document_id: i32,
@@ -206,15 +209,14 @@ impl Repository {
                 d."Id" as document_id,
                 d."DocumentTitle" as title,
                 d."DocumentDesc" as description,
-                m.auto_summary,
+                d.auto_summary,
                 d."FileSize" as file_size,
-                COUNT(c.chunk_id) as total_chunks,
+                COUNT(c.id) as total_chunks,
                 d."InsertedAt" as created_at
             FROM "TblDocuments" d
-            LEFT JOIN rag_document_metadata m ON m.document_id = d."Id"
             LEFT JOIN rag_document_chunks c ON c.document_id = d."Id"
             WHERE d."Id" = $1 AND d."IsDeleted" = false
-            GROUP BY d."Id", m.auto_summary
+            GROUP BY d."Id"
             "#
         )
         .bind(document_id)
@@ -232,7 +234,8 @@ impl Repository {
         })
     }
     
-    /// Get first N chunks of a document
+    /// Get first N chunks of a document (for overview generation)
+    /// These are typically the intro/summary paragraphs
     pub async fn get_document_overview_chunks(
         &self,
         document_id: i32,
@@ -241,13 +244,13 @@ impl Repository {
         let chunks = sqlx::query_as::<_, DocumentChunk>(
             r#"
             SELECT 
-                c.chunk_id,
+                c.id as chunk_id,
                 c.document_id,
                 d."DocumentTitle" as document_title,
                 c.content,
                 1.0 as similarity,
                 c.chunk_index,
-                NULL::int as page_number
+                c.page_number
             FROM rag_document_chunks c
             JOIN "TblDocuments" d ON d."Id" = c.document_id
             WHERE c.document_id = $1
@@ -259,6 +262,8 @@ impl Repository {
         .bind(limit)
         .fetch_all(self.pool.get_pool())
         .await?;
+        
+        debug!("Retrieved {} overview chunks for document {}", chunks.len(), document_id);
         
         Ok(chunks)
     }
@@ -285,24 +290,16 @@ impl Repository {
         auto_summary: String,
     ) -> Result<()> {
         sqlx::query(
-            r#"
-            INSERT INTO rag_document_metadata 
-                (document_id, auto_summary, summary_token_count, summary_generated_at, updated_at)
-            VALUES 
-                ($1, $2, $3, NOW(), NOW())
-            ON CONFLICT (document_id) 
-            DO UPDATE SET 
-                auto_summary = EXCLUDED.auto_summary,
-                summary_token_count = EXCLUDED.summary_token_count,
-                summary_generated_at = NOW(),
-                updated_at = NOW()
-            "#
+            r#"UPDATE "TblDocuments" 
+               SET auto_summary = $1, "UpdatedAt" = NOW()
+               WHERE "Id" = $2"#
         )
+        .bind(auto_summary)
         .bind(document_id)
-        .bind(&auto_summary)
-        .bind(auto_summary.split_whitespace().count() as i32)
         .execute(self.pool.get_pool())
         .await?;
+        
+        debug!("Updated auto_summary for document {}", document_id);
         
         Ok(())
     }
@@ -420,7 +417,6 @@ impl Repository {
         let pool = self.pool.get_pool();
 
         // 1. Vector Search Index (IVFFlat)
-        // Optimization: ivfflat is good for recall/speed balance. lists=100 is a good default for <100k rows.
         debug!("Ensuring vector index exists...");
         sqlx::query(
             r#"CREATE INDEX IF NOT EXISTS idx_rag_chunks_embedding 

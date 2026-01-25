@@ -1,9 +1,12 @@
+// PATCH for document_service.rs
+// Add auto-summary generation after document processing
+
 use crate::database::Repository;
 use crate::document::{chunker::TextChunker, parser::DocumentParser};
 use crate::services::EmbeddingService;
-use crate::services::LlmService;
-use crate::models::chat::ChatMessage;
+use crate::services::LlmService; // ADD THIS IMPORT
 use crate::utils::error::ApiError;
+use crate::models::chat::ChatMessage; // ADD THIS IMPORT
 use anyhow::Result;
 use pgvector::Vector;
 use std::sync::Arc;
@@ -12,28 +15,28 @@ use tracing::{debug, info, warn};
 pub struct DocumentService {
     repository: Arc<Repository>,
     embedding_service: Arc<EmbeddingService>,
-    llm_service: Arc<LlmService>,
+    llm_service: Arc<LlmService>, // ADD THIS FIELD
     chunk_size: usize,
     chunk_overlap: usize,
 }
 
 impl DocumentService {
+    // UPDATE CONSTRUCTOR
     pub fn new(
-        repository: Arc<Repository>,
+        repository: Arc<Repository>, 
         embedding_service: Arc<EmbeddingService>,
-        llm_service: Arc<LlmService>,
-        config: &crate::config::RagConfig,
+        llm_service: Arc<LlmService>, // ADD PARAMETER
     ) -> Self {
         Self {
             repository,
             embedding_service,
-            llm_service,
-            chunk_size: config.chunk_size,
-            chunk_overlap: (config.chunk_size as f32 * config.chunk_overlap_percentage) as usize,
+            llm_service, // INITIALIZE FIELD
+            chunk_size: 512,
+            chunk_overlap: 50,
         }
     }
     
-    /// Process uploaded file: decode -> parse -> chunk -> embed -> save
+    /// Process uploaded file: decode -> parse -> chunk -> embed -> save -> generate summary
     pub async fn process_upload<F>(
         &self,
         user_id: i32,
@@ -103,8 +106,8 @@ impl DocumentService {
         report_progress(0.8, "Preparing chunks for database...".to_string(), "saving".to_string());
         let chunks_len = chunks.len();
         let chunk_data: Vec<(String, Vector)> = chunks
-            .iter()
-            .cloned()
+            .clone() // Clone here because we need chunks for summary generation
+            .into_iter()
             .zip(embeddings.into_iter())
             .map(|(content, embedding)| (content, Vector::from(embedding)))
             .collect();
@@ -115,12 +118,16 @@ impl DocumentService {
             .insert_document_chunks(document_id, chunk_data)
             .await
             .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
-
+        
         // ============ NEW: Generate Auto-Summary ============
         report_progress(0.9, "Generating document summary...".to_string(), "summarizing".to_string());
+        
         if let Err(e) = self.generate_document_summary(document_id, &chunks).await {
+            // Log error but don't fail the entire process
             warn!("Failed to generate auto-summary for document {}: {}", document_id, e);
+            // Continue without summary
         }
+        
         // ============ END NEW ============
         
         report_progress(1.0, "Processing completed".to_string(), "completed".to_string());
@@ -129,6 +136,55 @@ impl DocumentService {
         
         Ok((document_id, chunks_len))
     }
+    
+    // ============ NEW METHOD ============
+    
+    /// Generate auto-summary from first N chunks
+    async fn generate_document_summary(
+        &self,
+        document_id: i32,
+        all_chunks: &[String],
+    ) -> Result<(), ApiError> {
+        // Use first 10 chunks (or less if document is small)
+        let summary_chunks: Vec<&String> = all_chunks
+            .iter()
+            .take(10)
+            .collect();
+        
+        if summary_chunks.is_empty() {
+            return Ok(()); // No chunks to summarize
+        }
+        
+        // Build prompt for LLM
+        let combined_text = summary_chunks
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        
+        let summary_prompt = format!(
+            "Buatlah ringkasan singkat (maksimal 3 kalimat) dari dokumen berikut. \
+             Fokus pada topik utama dan poin-poin penting:\n\n{}",
+            combined_text
+        );
+        
+        // Generate summary using LLM
+        let auto_summary = self.llm_service
+            .generate_chat(vec![ChatMessage::user(&summary_prompt)])
+            .await?;
+        
+        // Save to database
+        self.repository
+            .update_document_summary(document_id, auto_summary)
+            .await
+            .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+        
+        info!("Auto-summary generated for document {}", document_id);
+        
+        Ok(())
+    }
+    
+    // ============ END NEW METHOD ============
     
     fn detect_file_type(&self, filename: &str) -> Result<String, ApiError> {
         let extension = std::path::Path::new(filename)
@@ -194,51 +250,5 @@ impl DocumentService {
             .create_document(user_id, filename, file_size, file_type)
             .await
             .map_err(|e| ApiError::DatabaseError(e.to_string()))
-    }
-
-    /// Generate auto-summary from first N chunks
-    async fn generate_document_summary(
-        &self,
-        document_id: i32,
-        all_chunks: &[String],
-    ) -> Result<(), ApiError> {
-        // Use first 10 chunks (or less if document is small)
-        let summary_chunks: Vec<&String> = all_chunks
-            .iter()
-            .take(10)
-            .collect();
-        
-        if summary_chunks.is_empty() {
-            return Ok(());
-        }
-        
-        // Build prompt for LLM
-        let combined_text = summary_chunks
-            .iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        
-        let summary_prompt = format!(
-            "Buatlah ringkasan singkat (maksimal 3 kalimat) dari dokumen berikut. \
-             Fokus pada topik utama dan poin-poin penting:\n\n{}",
-            combined_text
-        );
-        
-        // Generate summary using LLM
-        let auto_summary = match self.llm_service
-            .generate_chat(vec![ChatMessage::user(&summary_prompt)])
-            .await {
-                Ok(s) => s,
-                Err(e) => return Err(ApiError::InternalError(format!("LLM summary failed: {}", e))),
-            };
-        
-        // Save to database
-        self.repository
-            .update_document_summary(document_id, auto_summary)
-            .await
-            .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
-        
-        Ok(())
     }
 }

@@ -31,14 +31,36 @@ use logging::{ActivityLogger, LoggerConfig};
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "info,rag_api_server=debug".to_string()),
-        )
-        .with_target(true)
-        .with_thread_ids(true)
+    // Initialize logging with non-blocking file writer to prevent console freeze
+    // 1. File Appender (Daily rolling, logs/ directory)
+    let file_appender = tracing_appender::rolling::daily("logs", "rag-server.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // 2. Archive stdout (optional, minimal output to console)
+    // We filter stdout to WARN only to prevent "QuickEdit" freeze on Windows
+    let stdout_log = tracing_subscriber::fmt::layer()
+        .with_target(false)
+        .with_filter(tracing_subscriber::filter::LevelFilter::WARN);
+
+    // 3. File Log (Full Debug/Info)
+    let file_log = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking)
+        .with_ansi(false)
         .json()
+        .with_target(true)
+        .with_thread_ids(true);
+
+    // 4. Registry
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    use tracing_subscriber::Layer; // Import Layer trait
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,rag_api_server=debug".into())
+        )
+        .with(stdout_log)
+        .with(file_log)
         .init();
     
     info!("🚀 Starting RAG API Server with Conversation Memory...");
@@ -54,6 +76,7 @@ async fn main() -> Result<()> {
     // Initialize repository
     let repository = Arc::new(Repository::new(db_pool.clone()));
     repository.ensure_processing_table().await?;
+    repository.ensure_indices().await?;
     info!("✅ Repository and tables initialized");
 
     // Initialize Activity Logger
@@ -69,12 +92,17 @@ async fn main() -> Result<()> {
         settings.embedding.clone(),
     ));
 
+    let llm_service = Arc::new(LlmService::new(
+        settings.llm.clone(),
+        settings.prompts.context_extraction_system_prompt.clone(),
+    ));
+
     let document_service = Arc::new(DocumentService::new(
         repository.clone(),
         embedding_service.clone(),
+        llm_service.clone(),
+        &settings.rag,
     ));
-
-    let llm_service = Arc::new(LlmService::new(settings.llm.clone()));
     
     let rag_service = Arc::new(RagService::new(
         repository.clone(),
@@ -89,6 +117,8 @@ async fn main() -> Result<()> {
         Box::new((*rag_service).clone()),
         Box::new((*llm_service).clone()),
         logger,
+        settings.llm.stream_response,
+        settings.prompts.main_system_prompt.clone(),
     ));
     info!("✅ Conversation manager initialized");
 

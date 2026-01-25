@@ -161,8 +161,12 @@ pub enum RetrievalReason {
     DocumentIdChanged,
     LowSimilarity(f32),  // Similarity score
     
-    // NEW:
+    // NEW: Meta-question handling
+    /// User asking about document overview/summary
+    /// Should fetch metadata + first chunks instead of vector search
     DocumentMetadataQuery,
+    
+    /// Clarification question with conversation context
     ClarificationWithContext,
 }
 

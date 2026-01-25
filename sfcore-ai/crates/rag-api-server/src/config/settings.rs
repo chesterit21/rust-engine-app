@@ -11,6 +11,7 @@ pub struct Settings {
     pub embedding: EmbeddingConfig,
     pub llm: LlmConfig,
     pub rag: RagConfig,
+    pub prompts: PromptsConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -53,14 +54,22 @@ pub struct LlmConfig {
     pub base_url: String,
     pub timeout_seconds: u64,
     pub max_tokens: usize,
+    pub stream_response: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RagConfig {
     pub retrieval_top_k: usize,
+    pub chunk_size: usize,
     pub chunk_overlap_percentage: f32,
     pub rerank_enabled: bool,
     pub max_context_length: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PromptsConfig {
+    pub main_system_prompt: String,
+    pub context_extraction_system_prompt: String,
 }
 
 impl Settings {

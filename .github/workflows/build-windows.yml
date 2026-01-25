@@ -1,0 +1,51 @@
+name: Build Windows Release
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build for Windows
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        target: x86_64-pc-windows-msvc
+
+    - name: Build RAG API Server
+      run: |
+        cd sfcore-ai/crates/rag-api-server
+        cargo build --release --target x86_64-pc-windows-msvc
+
+    - name: Prepare Artifacts
+      shell: powershell
+      run: |
+        mkdir release
+        copy sfcore-ai/target/x86_64-pc-windows-msvc/release/rag-api-server.exe release/
+        copy sfcore-ai/crates/rag-api-server/config/settings.toml release/settings.toml.example
+        copy sfcore-ai/crates/rag-api-server/.env.example release/.env.example
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: rag-api-server-windows
+        path: release/
+
+    - name: Release to GitHub
+      uses: softprops/action-gh-release@v1
+      if: github.ref == 'refs/heads/main'
+      with:
+        tag_name: latest
+        files: sfcore-ai/target/x86_64-pc-windows-msvc/release/rag-api-server.exe
+        token: ${{ secrets.GITHUB_TOKEN }}
+

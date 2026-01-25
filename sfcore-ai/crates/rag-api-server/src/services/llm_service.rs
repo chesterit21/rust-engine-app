@@ -40,20 +40,22 @@ pub struct Delta {
 pub struct LlmService {
     client: Client,
     config: LlmConfig,
+    context_extraction_system_prompt: String,
 }
 
 impl LlmService {
-    pub fn new(config: LlmConfig) -> Self {
+    pub fn new(config: LlmConfig, context_extraction_system_prompt: String) -> Self {
         Self {
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(config.timeout_seconds))
                 .build()
                 .expect("Failed to create HTTP client"),
             config,
+            context_extraction_system_prompt,
         }
     }
     
-    /// Generate completion dengan streaming
+    /// Generate completion with streaming
     pub async fn chat_stream(
         &self,
         messages: Vec<ChatMessage>,
@@ -190,12 +192,27 @@ impl LlmProvider for LlmService {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    async fn summarize_chunks(&self, chunks: &[RetrievalChunk]) -> Result<String> {
+    async fn generate_stream(&self, messages: &[ChatMessage]) -> Result<Pin<Box<dyn Stream<Item = Result<String, anyhow::Error>> + Send>>> {
+        use futures::StreamExt;
+        
+        let stream = self.chat_stream(messages.to_vec())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+            
+        // Map stream items from ApiError to anyhow::Error
+        let mapped_stream = stream.map(|item| {
+            item.map_err(|e| anyhow::anyhow!(e))
+        });
+        
+        Ok(Box::pin(mapped_stream))
+    }
+
+    async fn summarize_chunks(&self, chunks: &[RetrievalChunk], query: &str) -> Result<String> {
         if chunks.is_empty() {
             return Ok("No relevant documents found.".to_string());
         }
 
-        // Build summarization prompt
+        // Build chunk text
         let chunks_text: String = chunks
             .iter()
             .enumerate()
@@ -210,19 +227,12 @@ impl LlmProvider for LlmService {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let summarization_prompt = format!(
-            r#"Summarize the following document chunks into a concise context (max 300 words).
-Focus on key information that would help answer user questions.
-
-{}
-
-Provide a clear, structured summary:"#,
-            chunks_text
-        );
+        // Construct System Message with Chunks
+        let system_message_content = self.context_extraction_system_prompt.replace("{{CHUNKS}}", &chunks_text);
         
         let messages = vec![
-            ChatMessage { role: "system".to_string(), content: "You are a document summarization assistant.".to_string() },
-            ChatMessage { role: "user".to_string(), content: summarization_prompt },
+            ChatMessage { role: "system".to_string(), content: system_message_content },
+            ChatMessage { role: "user".to_string(), content: query.to_string() },
         ];
         
         self.generate(&messages).await

@@ -6,6 +6,7 @@ use anyhow::Result;
 use pgvector::Vector;
 use std::sync::Arc;
 use tracing::{debug, info};
+use crate::database::models::{DocumentMetadata, DocumentOverview};
 use crate::services::conversation::manager::{RetrievalProvider, RetrievalChunk};
 
 #[derive(Clone)] // Clone derives for Arc usage if needed, but RagService usually wrapped in Arc
@@ -59,7 +60,8 @@ impl RagService {
         let vector = Vector::from(query_embedding);
         
         // Search dengan authorization
-        let chunks = if self.config.rerank_enabled {
+        // Search dengan authorization
+        let mut chunks = if self.config.rerank_enabled {
             // Hybrid search (vector + full-text)
             self.repository
                 .hybrid_search_user_documents(
@@ -83,6 +85,26 @@ impl RagService {
                 .await
                 .map_err(|e| ApiError::DatabaseError(e.to_string()))?
         };
+
+        // STRATEGY: "Introduction Context"
+        // If specific document is targeted, always try to fetch the first chunk (Intro/Summary)
+        // This solves the "What is this document about?" problem where vector query doesn't match content.
+        if let Some(doc_id) = document_id {
+            // Check if chunk 0 is already in results
+            let has_intro = chunks.iter().any(|c| c.chunk_index == 0);
+            
+            if !has_intro {
+                match self.repository.get_first_chunk(doc_id).await {
+                    Ok(Some(intro_chunk)) => {
+                        debug!("Injecting intro chunk (index 0) for context robustness");
+                        // Prepend intro chunk
+                        chunks.insert(0, intro_chunk);
+                    }
+                    Ok(None) => debug!("No intro chunk found for doc {}", doc_id),
+                    Err(e) => tracing::warn!("Failed to fetch intro chunk: {}", e),
+                }
+            }
+        }
         
         debug!("Retrieved {} chunks", chunks.len());
         
@@ -185,5 +207,24 @@ impl RetrievalProvider for RagService {
             }).collect()),
             Err(e) => anyhow::bail!("Retrieval failed: {}", e),
         }
+    }
+
+    async fn get_document_metadata(&self, document_id: i32) -> Result<DocumentMetadata> {
+        self.repository.get_document_metadata(document_id).await
+    }
+
+    async fn get_document_overview_chunks(&self, document_id: i32, limit: i32) -> Result<Vec<RetrievalChunk>> {
+        let chunks = self.repository.get_document_overview_chunks(document_id, limit).await?;
+        Ok(chunks.into_iter().map(|c| RetrievalChunk {
+            chunk_id: c.chunk_id,
+            document_id: c.document_id as i64,
+            content: c.content,
+            document_title: Some(c.document_title),
+            similarity: c.similarity,
+        }).collect())
+    }
+
+    async fn get_document_overview(&self, document_id: i32, chunk_limit: i32) -> Result<DocumentOverview> {
+        self.repository.get_document_overview(document_id, chunk_limit).await
     }
 }

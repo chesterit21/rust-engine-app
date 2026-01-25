@@ -17,6 +17,7 @@ pub enum ActivityType {
     SessionCreated,
     SessionExpired,
     CascadeDeletion,
+    ProcessingStage,
 }
 
 impl ActivityType {
@@ -33,6 +34,7 @@ impl ActivityType {
             Self::SessionCreated => "session_created",
             Self::SessionExpired => "session_expired",
             Self::CascadeDeletion => "cascade_deletion",
+            Self::ProcessingStage => "processing_stage",
         }
     }
 }
