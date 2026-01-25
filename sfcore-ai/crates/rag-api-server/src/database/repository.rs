@@ -176,4 +176,65 @@ impl Repository {
         
         Ok(())
     }
+
+    /// Create document metadata records
+    pub async fn create_document(
+        &self,
+        user_id: i32,
+        filename: &str,
+        file_size: i32,
+        file_type: &str,
+    ) -> Result<i32> {
+        let mut transaction = self.pool.get_pool().begin().await?;
+        
+        // 1. Insert into TblDocuments
+        // Hardcoded: CategoryID = 1, WatermarkID = null
+        let row = sqlx::query(
+            r#"
+            INSERT INTO "TblDocuments"
+            ("CategoryID", "DocumentTitle", "DocumentDesc", "Owner", "FileSize",
+             "InsertedBy", "InsertedAt", "UpdatedAt", "IsActive", "IsDeleted")
+            VALUES
+            ($1, $2, $3, $4, $5, $6, NOW(), NOW(), true, false)
+            RETURNING "Id"
+            "#
+        )
+        .bind(1) // CategoryID
+        .bind(filename)
+        .bind("Uploaded via RAG Chat")
+        .bind(user_id)
+        .bind(file_size)
+        .bind(user_id) // InsertedBy
+        .fetch_one(&mut *transaction)
+        .await?;
+        
+        let document_id: i32 = row.get("Id");
+        
+        // 2. Insert into TblDocumentFiles
+        let file_path = format!("uploads/{}/{}", user_id, filename); 
+        
+        sqlx::query(
+            r#"
+            INSERT INTO "TblDocumentFiles"
+            ("DocumentID", "DocumentType", "DocumentFileName", "DocumentFileSize", 
+             "DocumentFilePath", "IsMainDocumentFile", "InsertedBy", "InsertedAt", 
+             "UpdatedAt", "IsActive", "IsDeleted")
+            VALUES
+            ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), true, false)
+            "#
+        )
+        .bind(document_id)
+        .bind(file_type) 
+        .bind(filename)
+        .bind(file_size)
+        .bind(file_path)
+        .bind(true) // IsMainDocumentFile
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await?;
+        
+        transaction.commit().await?;
+        
+        Ok(document_id)
+    }
 }

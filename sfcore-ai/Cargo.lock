@@ -646,6 +646,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "deflate64"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2583,6 +2597,7 @@ dependencies = [
  "calamine",
  "chrono",
  "config",
+ "dashmap",
  "docx-rs",
  "dotenvy",
  "encoding_rs",
@@ -2596,6 +2611,7 @@ dependencies = [
  "mockall",
  "notify",
  "once_cell",
+ "parking_lot",
  "pgvector",
  "pulldown-cmark",
  "quick-xml 0.36.2",
@@ -2607,6 +2623,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
+ "sysinfo 0.31.4",
  "text-splitter",
  "thiserror 1.0.69",
  "tokio",
@@ -2615,6 +2632,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "unicode-segmentation",
  "uuid",
  "zip 2.4.2",
 ]
@@ -2648,7 +2666,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
- "sysinfo",
+ "sysinfo 0.33.1",
  "tempfile",
  "text-splitter",
  "thiserror 1.0.69",
@@ -3566,6 +3584,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.114",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.31.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "355dbe4f8799b304b05e1b0f05fc59b2a18d36645cf169607da45bde2f69a1be"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
+ "memchr",
+ "ntapi",
+ "rayon",
+ "windows",
 ]
 
 [[package]]

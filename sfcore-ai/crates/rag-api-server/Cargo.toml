@@ -71,6 +71,13 @@ async-stream = "0.3"
 ipnetwork = "0.20"
 notify = "6.1"
 
+# === Memory System ===
+dashmap = "6.1"
+unicode-segmentation = "1.12"
+sysinfo = "0.31"
+parking_lot = "0.12"
+
+
 
 [dev-dependencies]
 mockall = "0.13"

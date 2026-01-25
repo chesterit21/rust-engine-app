@@ -46,4 +46,27 @@ chunk_overlap_percentage = 0.1
 rerank_enabled = false
 
 # Context window
-max_context_length = 4000
+
+# === NEW: Conversation Memory Settings ===
+[conversation]
+# Session expiration (6 hours in seconds)
+session_expiration_seconds = 21600
+
+# Token limits
+token_soft_limit = 20000  # Start deletion
+token_hard_limit = 23000  # Force truncate retrieval
+model_max_tokens = 32000  # Model capacity
+
+# Sliding window
+max_message_pairs = 5  # Max 5 user+assistant pairs
+
+# Retrieval decision
+similarity_threshold = 0.75  # Skip retrieval if > this
+
+# Weighted embedding
+current_message_weight = 0.7
+history_weight = 0.3
+max_history_for_context = 5
+
+# Memory limit
+max_ram_usage_percent = 90.0

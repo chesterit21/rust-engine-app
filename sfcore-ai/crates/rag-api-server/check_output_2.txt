@@ -1,0 +1,356 @@
+warning: both `/home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/.cargo/config` and `/home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/.cargo/config.toml` exist. Using `/home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/.cargo/config`
+warning: `/home/sfcore/.cargo/config` is deprecated in favor of `config.toml`
+  |
+  = help: if you need to support cargo 1.38 or earlier, you can symlink `config` to `config.toml`
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/crates/rag-embedding-worker/Cargo.toml
+workspace: /home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/crates/rag-api-server/Cargo.toml
+workspace: /home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/Cargo.toml
+warning: /home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/crates/rag-embedding-worker/Cargo.toml: unused manifest key: target.x86_64-pc-windows-gnu.linker
+warning: patch `llama-cpp-sys-2 v0.1.132 (/home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/crates/patched/llama-cpp-sys-2)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+      with the dependency requirements. If the patch has a different version from
+      what is locked in the Cargo.lock file, run `cargo update` to use the new
+      version. This may also occur with an optional dependency that is not enabled.
+    Checking rag-api-server v0.1.0 (/home/sfcore/SFCoreAIApps/AIRustTools/root-app/sfcore-ai/crates/rag-api-server)
+warning: unused import: `ConfigError`
+ --> crates/rag-api-server/src/config/settings.rs:2:22
+  |
+2 | use config::{Config, ConfigError, Environment, File};
+  |                      ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `pgvector::Vector`
+ --> crates/rag-api-server/src/database/models.rs:2:5
+  |
+2 | use pgvector::Vector;
+  |     ^^^^^^^^^^^^^^^^
+
+warning: unused import: `ChatResponse`
+  --> crates/rag-api-server/src/handlers/chat.rs:11:40
+   |
+11 | use crate::models::chat::{ChatRequest, ChatResponse};
+   |                                        ^^^^^^^^^^^^
+
+warning: unused import: `IntoResponse`
+ --> crates/rag-api-server/src/security/middleware.rs:7:16
+  |
+7 |     response::{IntoResponse, Response},
+  |                ^^^^^^^^^^^^
+
+warning: unused variable: `done_event`
+  --> crates/rag-api-server/src/handlers/chat.rs:99:25
+   |
+99 |                     let done_event = Event::default()
+   |                         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_done_event`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `config_path` is never read
+  --> crates/rag-api-server/src/security/ip_whitelist.rs:12:5
+   |
+10 | pub struct IpWhitelist {
+   |            ----------- field in this struct
+11 |     allowed_networks: Arc<RwLock<Vec<IpNetwork>>>,
+12 |     config_path: PathBuf,
+   |     ^^^^^^^^^^^
+   |
+   = note: `IpWhitelist` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rag-api-server` (lib) generated 6 warnings (run `cargo fix --lib -p rag-api-server` to apply 5 suggestions)
+error[E0433]: failed to resolve: unresolved import
+ --> crates/rag-api-server/src/state.rs:7:12
+  |
+7 | use crate::services::{
+  |            ^^^^^^^^
+  |            |
+  |            unresolved import
+  |            help: a similar path exists: `rag_api_server::services`
+
+error[E0432]: unresolved import `crate::security`
+ --> crates/rag-api-server/src/state.rs:6:12
+  |
+6 | use crate::security::{CustomHeaderValidator, DocumentAuthorization, IpWhitelist};
+  |            ^^^^^^^^
+  |            |
+  |            unresolved import
+  |            help: a similar path exists: `rag_api_server::security`
+
+error[E0432]: unresolved import `crate::services`
+ --> crates/rag-api-server/src/state.rs:7:12
+  |
+7 | use crate::services::{
+  |            ^^^^^^^^
+  |            |
+  |            unresolved import
+  |            help: a similar path exists: `rag_api_server::services`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `services`
+  --> crates/rag-api-server/src/main.rs:26:5
+   |
+26 | use services::{
+   |     ^^^^^^^^ use of unresolved module or unlinked crate `services`
+   |
+help: to make use of source file crates/rag-api-server/src/services/mod.rs, use `mod services` in this file to declare the module
+   |
+ 1 + mod services;
+   |
+
+error[E0432]: unresolved import `security`
+  --> crates/rag-api-server/src/main.rs:25:5
+   |
+25 | use security::{CustomHeaderValidator, DocumentAuthorization, IpWhitelist};
+   |     ^^^^^^^^ help: a similar path exists: `rag_api_server::security`
+
+error[E0432]: unresolved import `services`
+  --> crates/rag-api-server/src/main.rs:26:5
+   |
+26 | use services::{
+   |     ^^^^^^^^ help: a similar path exists: `tower_http::services`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `handlers`
+   --> crates/rag-api-server/src/main.rs:162:31
+    |
+162 |         .route("/health", get(handlers::health::health_check))
+    |                               ^^^^^^^^ use of unresolved module or unlinked crate `handlers`
+    |
+help: to make use of source file crates/rag-api-server/src/handlers/mod.rs, use `mod handlers` in this file to declare the module
+    |
+  1 + mod handlers;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::handlers::health;
+    |
+help: if you import `health`, refer to it directly
+    |
+162 -         .route("/health", get(handlers::health::health_check))
+162 +         .route("/health", get(health::health_check))
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `handlers`
+   --> crates/rag-api-server/src/main.rs:163:37
+    |
+163 |         .route("/health/ready", get(handlers::health::readiness_check));
+    |                                     ^^^^^^^^ use of unresolved module or unlinked crate `handlers`
+    |
+help: to make use of source file crates/rag-api-server/src/handlers/mod.rs, use `mod handlers` in this file to declare the module
+    |
+  1 + mod handlers;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::handlers::health;
+    |
+help: if you import `health`, refer to it directly
+    |
+163 -         .route("/health/ready", get(handlers::health::readiness_check));
+163 +         .route("/health/ready", get(health::readiness_check));
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `handlers`
+   --> crates/rag-api-server/src/main.rs:168:41
+    |
+168 |         .route("/api/chat/stream", post(handlers::chat::chat_stream_handler))
+    |                                         ^^^^^^^^ use of unresolved module or unlinked crate `handlers`
+    |
+help: to make use of source file crates/rag-api-server/src/handlers/mod.rs, use `mod handlers` in this file to declare the module
+    |
+  1 + mod handlers;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::handlers::chat;
+    |
+help: if you import `chat`, refer to it directly
+    |
+168 -         .route("/api/chat/stream", post(handlers::chat::chat_stream_handler))
+168 +         .route("/api/chat/stream", post(chat::chat_stream_handler))
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `handlers`
+   --> crates/rag-api-server/src/main.rs:169:46
+    |
+169 |         .route("/api/chat/session/new", post(handlers::chat::new_session_handler))
+    |                                              ^^^^^^^^ use of unresolved module or unlinked crate `handlers`
+    |
+help: to make use of source file crates/rag-api-server/src/handlers/mod.rs, use `mod handlers` in this file to declare the module
+    |
+  1 + mod handlers;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::handlers::chat;
+    |
+help: if you import `chat`, refer to it directly
+    |
+169 -         .route("/api/chat/session/new", post(handlers::chat::new_session_handler))
+169 +         .route("/api/chat/session/new", post(chat::new_session_handler))
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `handlers`
+   --> crates/rag-api-server/src/main.rs:170:39
+    |
+170 |         .route("/api/chat/stats", get(handlers::chat::cache_stats_handler))
+    |                                       ^^^^^^^^ use of unresolved module or unlinked crate `handlers`
+    |
+help: to make use of source file crates/rag-api-server/src/handlers/mod.rs, use `mod handlers` in this file to declare the module
+    |
+  1 + mod handlers;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::handlers::chat;
+    |
+help: if you import `chat`, refer to it directly
+    |
+170 -         .route("/api/chat/stats", get(handlers::chat::cache_stats_handler))
+170 +         .route("/api/chat/stats", get(chat::cache_stats_handler))
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `handlers`
+   --> crates/rag-api-server/src/main.rs:171:42
+    |
+171 |         .route("/api/chat/cleanup", post(handlers::chat::cleanup_sessions_handler))
+    |                                          ^^^^^^^^ use of unresolved module or unlinked crate `handlers`
+    |
+help: to make use of source file crates/rag-api-server/src/handlers/mod.rs, use `mod handlers` in this file to declare the module
+    |
+  1 + mod handlers;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::handlers::chat;
+    |
+help: if you import `chat`, refer to it directly
+    |
+171 -         .route("/api/chat/cleanup", post(handlers::chat::cleanup_sessions_handler))
+171 +         .route("/api/chat/cleanup", post(chat::cleanup_sessions_handler))
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `handlers`
+   --> crates/rag-api-server/src/main.rs:174:36
+    |
+174 |         .route("/api/search", post(handlers::search::search_handler))
+    |                                    ^^^^^^^^ use of unresolved module or unlinked crate `handlers`
+    |
+help: to make use of source file crates/rag-api-server/src/handlers/mod.rs, use `mod handlers` in this file to declare the module
+    |
+  1 + mod handlers;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::handlers::search;
+    |
+help: if you import `search`, refer to it directly
+    |
+174 -         .route("/api/search", post(handlers::search::search_handler))
+174 +         .route("/api/search", post(search::search_handler))
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `handlers`
+   --> crates/rag-api-server/src/main.rs:175:36
+    |
+175 |         .route("/api/upload", post(handlers::upload::upload_handler))
+    |                                    ^^^^^^^^ use of unresolved module or unlinked crate `handlers`
+    |
+help: to make use of source file crates/rag-api-server/src/handlers/mod.rs, use `mod handlers` in this file to declare the module
+    |
+  1 + mod handlers;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::handlers::upload;
+    |
+help: if you import `upload`, refer to it directly
+    |
+175 -         .route("/api/upload", post(handlers::upload::upload_handler))
+175 +         .route("/api/upload", post(upload::upload_handler))
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `handlers`
+   --> crates/rag-api-server/src/main.rs:176:38
+    |
+176 |         .route("/api/documents", get(handlers::search::list_documents_handler))
+    |                                      ^^^^^^^^ use of unresolved module or unlinked crate `handlers`
+    |
+help: to make use of source file crates/rag-api-server/src/handlers/mod.rs, use `mod handlers` in this file to declare the module
+    |
+  1 + mod handlers;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::handlers::search;
+    |
+help: if you import `search`, refer to it directly
+    |
+176 -         .route("/api/documents", get(handlers::search::list_documents_handler))
+176 +         .route("/api/documents", get(search::list_documents_handler))
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `security`
+   --> crates/rag-api-server/src/main.rs:178:36
+    |
+178 |         .layer(middleware::from_fn(security::middleware::security_middleware))
+    |                                    ^^^^^^^^ use of unresolved module or unlinked crate `security`
+    |
+help: to make use of source file crates/rag-api-server/src/security/mod.rs, use `mod security` in this file to declare the module
+    |
+  1 + mod security;
+    |
+help: consider importing this module
+    |
+  1 + use rag_api_server::security::middleware;
+    |
+help: if you import `middleware`, refer to it directly
+    |
+178 -         .layer(middleware::from_fn(security::middleware::security_middleware))
+178 +         .layer(middleware::from_fn(middleware::security_middleware))
+    |
+
+warning: unused import: `FromRef`
+ --> crates/rag-api-server/src/main.rs:3:33
+  |
+3 |     extract::{DefaultBodyLimit, FromRef},
+  |                                 ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `ConfigError`
+ --> crates/rag-api-server/src/config/settings.rs:2:22
+  |
+2 | use config::{Config, ConfigError, Environment, File};
+  |                      ^^^^^^^^^^^
+
+warning: unused import: `similarity::cosine_similarity`
+ --> crates/rag-api-server/src/utils/mod.rs:5:9
+  |
+5 | pub use similarity::cosine_similarity;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `DocumentParser` and `ParsedDocument`
+ --> crates/rag-api-server/src/document/mod.rs:4:18
+  |
+4 | pub use parser::{DocumentParser, ParsedDocument};
+  |                  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+
+warning: unused imports: `Chunk` and `TextChunker`
+ --> crates/rag-api-server/src/document/mod.rs:5:19
+  |
+5 | pub use chunker::{TextChunker, Chunk};
+  |                   ^^^^^^^^^^^  ^^^^^
+
+warning: unused import: `chat::*`
+ --> crates/rag-api-server/src/models/mod.rs:2:9
+  |
+2 | pub use chat::*;
+  |         ^^^^^^^
+
+Some errors have detailed explanations: E0432, E0433.
+For more information about an error, try `rustc --explain E0432`.
+warning: `rag-api-server` (bin "rag-api-server") generated 7 warnings (1 duplicate)
+error: could not compile `rag-api-server` (bin "rag-api-server") due to 16 previous errors; 7 warnings emitted

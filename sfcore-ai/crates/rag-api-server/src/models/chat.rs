@@ -1,80 +1,116 @@
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
+use unicode_segmentation::UnicodeSegmentation;
 
-// ===== REQUEST MODELS =====
+/// OpenAI-compatible message format (SHARED across all modules)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,      // "user" | "assistant" | "system"
+    pub content: String,
+}
 
+impl ChatMessage {
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: content.into(),
+        }
+    }
+
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content: content.into(),
+        }
+    }
+
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: "system".to_string(),
+            content: content.into(),
+        }
+    }
+
+    /// Estimate token count for this message
+    pub fn estimate_tokens(&self) -> usize {
+        let role_chars = self.role.graphemes(true).count();
+        let content_chars = self.content.graphemes(true).count();
+        let total_chars = role_chars + content_chars;
+        
+        // Random 2-3 chars per token + overhead (deterministic for same text roughly?) 
+        // Logic copied from token_counter but simplified or we can rely on token_counter
+        // For simple estimation:
+        ((total_chars + 2) / 3).max(1) + 3
+    }
+}
+
+/// Session ID type
+pub type SessionId = i64;
+
+/// Chat request payload
 #[derive(Debug, Deserialize)]
 pub struct ChatRequest {
-    pub user_id: String,
+    pub user_id: i64,
+    pub session_id: SessionId,
     pub message: String,
-    #[serde(default)]
-    pub document_upload: Option<Vec<DocumentUpload>>,
-    #[serde(default)]
-    pub document_selected: Option<Vec<String>>,  // document_id array
-    #[serde(default)]
-    pub session_id: Option<String>,
+    pub document_id: Option<i64>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct DocumentUpload {
-    pub file_name: String,
-    pub file_base64: String,
-    pub file_type: String,
-}
-
-// ===== RESPONSE EVENT MODELS =====
-
+/// Chat response (for non-streaming)
 #[derive(Debug, Serialize)]
-pub struct SessionInfo {
-    pub session_id: i32,
-    pub user_id: String,
-    pub timestamp: DateTime<Utc>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct StatusInfo {
-    pub stage: String,  // uploading, parsing, embedding, retrieving, generating
+pub struct ChatResponse {
+    pub session_id: SessionId,
     pub message: String,
-    pub progress: u8,  // 0-100
+    pub sources: Vec<SourceInfo>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct UploadedDocInfo {
-    pub document_id: i32,
-    pub file_name: String,
-    pub status: String,  // success, failed
-    pub chunks_created: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
+/// Source information for citations
+#[derive(Debug, Serialize, Clone)]
 pub struct SourceInfo {
-    pub document_id: i32,
-    pub document_name: String,
+    pub document_id: i64,
+    pub document_title: String,
     pub chunk_id: i64,
     pub similarity: f32,
-    pub page_number: Option<i32>,
-    pub preview: String,  // first 150 chars
-    pub download_url: String,
-    pub view_url: String,
 }
 
+/// Streaming event types for SSE
 #[derive(Debug, Serialize)]
-pub struct MessageChunk {
-    pub delta: String,  // streaming text chunk
+#[serde(tag = "event", content = "data")]
+pub enum StreamEvent {
+    #[serde(rename = "sources")]
+    Sources(Vec<SourceInfo>),
+    
+    #[serde(rename = "message")]
+    Message(String),
+    
+    #[serde(rename = "done")]
+    Done,
+    
+    #[serde(rename = "error")]
+    Error { message: String },
 }
 
-#[derive(Debug, Serialize)]
-pub struct CompletionInfo {
-    pub session_id: String,
-    pub message_id: String,
-    pub sources_count: usize,
-    pub processing_time_ms: u64,
+/// Generate new session ID for user
+#[derive(serde::Deserialize)]
+pub struct NewSessionRequest {
+    pub user_id: i64,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ErrorInfo {
-    pub code: String,
-    pub message: String,
+#[derive(serde::Serialize)]
+pub struct NewSessionResponse {
+    pub session_id: i64,
+}
+
+/// Cache statistics response
+#[derive(serde::Serialize)]
+pub struct CacheStatsResponse {
+    pub active_sessions: usize,
+    pub memory_usage_mb: u64,
+    pub memory_total_mb: u64,
+    pub memory_usage_percent: f64,
+}
+
+/// Cleanup response
+#[derive(serde::Serialize)]
+pub struct CleanupResponse {
+    pub sessions_removed: usize,
 }

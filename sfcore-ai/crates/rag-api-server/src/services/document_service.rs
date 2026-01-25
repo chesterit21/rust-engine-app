@@ -5,7 +5,7 @@ use crate::utils::error::ApiError;
 use anyhow::Result;
 use pgvector::Vector;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct DocumentService {
     repository: Arc<Repository>,
@@ -61,7 +61,7 @@ impl DocumentService {
         debug!("Generated {} embeddings", embeddings.len());
         
         // 5. Create document record in TblDocuments
-        let document_id = self.create_document_record(user_id, &filename).await?;
+        let document_id = self.create_document_record(user_id, &filename, file_data.len() as i32, &file_type).await?;
         info!("Created document record: id={}", document_id);
         
         // 6. Save chunks to rag_document_chunks
@@ -135,16 +135,16 @@ impl DocumentService {
         Ok(chunks.into_iter().map(|c| c.content).collect())
     }
     
-    async fn create_document_record(&self, user_id: i32, filename: &str) -> Result<i32, ApiError> {
-        // TODO: Real implementation - insert ke TblDocuments
-        // Untuk sekarang, generate temporary ID
-        let document_id = (chrono::Utc::now().timestamp() % 100000) as i32;
-        
-        info!(
-            "Document record created: id={}, user={}, filename={}",
-            document_id, user_id, filename
-        );
-        
-        Ok(document_id)
+    async fn create_document_record(
+        &self, 
+        user_id: i32, 
+        filename: &str,
+        file_size: i32,
+        file_type: &str,
+    ) -> Result<i32, ApiError> {
+        self.repository
+            .create_document(user_id, filename, file_size, file_type)
+            .await
+            .map_err(|e| ApiError::DatabaseError(e.to_string()))
     }
 }
