@@ -50,3 +50,11 @@ pub struct ChatSession {
     pub messages: Vec<ChatMessage>,
     pub created_at: DateTime<Utc>,
 }
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct DocumentProcessingStatus {
+    pub document_id: i32,
+    pub status: String,
+    pub progress: f32,
+    pub message: Option<String>,
+    pub updated_at: DateTime<Utc>,
+}

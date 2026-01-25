@@ -48,12 +48,16 @@ pub struct RetrievalChunk {
     pub similarity: f32,
 }
 
+use crate::logging::{ActivityLogger, ActivityLog, ActivityType, ActivityStatus};
+use std::time::Instant;
+
 pub struct ConversationManager {
     cache: ConversationCache,
     context_builder: ContextBuilder,
     embedding_provider: Box<dyn EmbeddingProvider>,
     retrieval_provider: Box<dyn RetrievalProvider>,
     llm_provider: Box<dyn LlmProvider>,
+    logger: ActivityLogger,
 }
 
 impl ConversationManager {
@@ -61,6 +65,7 @@ impl ConversationManager {
         embedding_provider: Box<dyn EmbeddingProvider>,
         retrieval_provider: Box<dyn RetrievalProvider>,
         llm_provider: Box<dyn LlmProvider>,
+        logger: ActivityLogger,
     ) -> Self {
         Self {
             cache: ConversationCache::new(),
@@ -68,6 +73,7 @@ impl ConversationManager {
             embedding_provider,
             retrieval_provider,
             llm_provider,
+            logger,
         }
     }
 
@@ -95,6 +101,14 @@ impl ConversationManager {
         }
 
         info!("Creating new session {} for user {}", session_id, user_id);
+        
+        // Log session creation
+        self.logger.log(
+            ActivityLog::builder(session_id, user_id, ActivityType::SessionCreated)
+                .status(ActivityStatus::Info)
+                .build()
+        );
+        
         let state = ConversationState::new(session_id, user_id, document_id);
         self.cache.set(session_id, state.clone());
 
@@ -108,15 +122,38 @@ impl ConversationManager {
         message: String,
         document_id: Option<i64>,
     ) -> Result<String> {
+        let start_time = Instant::now();
         info!("Handling message for session {}, user {}", session_id, user_id);
 
+        // 1. Log Initial Payload (RequestReceived)
+        self.logger.log(
+            ActivityLog::builder(session_id, user_id, ActivityType::RequestReceived)
+                .message(&message)
+                .document_id(document_id.unwrap_or(0))
+                .status(ActivityStatus::Info)
+                .build()
+        );
+
         let mut state = self.get_or_create_session(session_id, user_id, document_id).await?;
+
+        // 2. Sliding Window Log
+        if state.needs_window_enforcement() {
+            self.logger.log(
+                ActivityLog::builder(session_id, user_id, ActivityType::SlidingWindowEnforced)
+                    .status(ActivityStatus::Warning)
+                    .build()
+            );
+        }
 
         self.enforce_sliding_window(&mut state)?;
 
         let current_embedding = self.embedding_provider
             .embed(&message)
             .await
+            .map_err(|e| {
+                error!("Embedding failed: {:?}", e); // Log full debug info including context
+                e
+            })
             .context("Failed to embed current message")?;
 
         let decision = self.context_builder.decide_retrieval(
@@ -126,6 +163,19 @@ impl ConversationManager {
             Some(&current_embedding),
         )?;
 
+        // 3. Log Retrieval Decision (Skip)
+        if let RetrievalDecision::Skip { reason } = &decision {
+             if let super::types::SkipReason::SameDocumentAndHighSimilarity(sim) = reason {
+                self.logger.log(
+                    ActivityLog::builder(session_id, user_id, ActivityType::RetrievalSkipped)
+                        .similarity(*sim)
+                        .retrieval_skipped(true)
+                        .build()
+                );
+            }
+        }
+
+        let retrieval_start = Instant::now();
         let system_context = self.execute_retrieval_decision(
             &mut state,
             &decision,
@@ -133,14 +183,51 @@ impl ConversationManager {
             document_id,
             &current_embedding,
         ).await?;
+        let retrieval_duration = retrieval_start.elapsed().as_millis() as i32;
+
+        // 4. Log Retrieval Executed
+        if matches!(decision, RetrievalDecision::Retrieve { .. }) {
+            self.logger.log(
+                ActivityLog::builder(session_id, user_id, ActivityType::RetrievalExecuted)
+                    .retrieval_duration(retrieval_duration)
+                    .retrieval_skipped(false)
+                    .build()
+            );
+        }
 
         state.messages.push(ChatMessage::user(&message));
 
+        // 5. Token Management Log
+        let token_count_before = state.metadata.total_tokens_last;
         self.manage_tokens(&mut state, &system_context).await?;
+        let token_count_after = state.metadata.total_tokens_last;
+
+        if token_count_before > 20_000 {
+            self.logger.log(
+                ActivityLog::builder(session_id, user_id, ActivityType::TokenOverflow)
+                    .status(ActivityStatus::Warning)
+                    .token_count(token_count_before as i32)
+                    .build()
+            );
+        }
 
         let llm_messages = self.prepare_llm_payload(&state, &system_context);
 
-        let assistant_response = self.call_llm_with_retry(&llm_messages).await?;
+        let llm_start = Instant::now();
+        let assistant_response = match self.call_llm_with_retry(&llm_messages).await {
+            Ok(response) => response,
+            Err(e) => {
+                // 6. Log LLM Error
+                self.logger.log(
+                    ActivityLog::builder(session_id, user_id, ActivityType::LlmError)
+                        .status(ActivityStatus::Error)
+                        .error(e.to_string(), "LlmCallFailed")
+                        .build()
+                );
+                return Err(e);
+            }
+        };
+        let llm_duration = llm_start.elapsed().as_millis() as i32;
 
         state.messages.push(ChatMessage::assistant(&assistant_response));
         state.last_query_embedding = Some(current_embedding);
@@ -148,6 +235,21 @@ impl ConversationManager {
         state.touch();
 
         self.cache.set(session_id, state);
+
+        let total_duration = start_time.elapsed().as_millis() as i32;
+
+        // 7. Log Final Completion (MessageSent)
+        self.logger.log(
+            ActivityLog::builder(session_id, user_id, ActivityType::MessageSent)
+                .message(&message)
+                .response(&assistant_response)
+                .token_count(token_count_after as i32)
+                .processing_time(total_duration)
+                .llm_duration(llm_duration)
+                .retrieval_duration(retrieval_duration)
+                .document_id(document_id.unwrap_or(0))
+                .build()
+        );
 
         Ok(assistant_response)
     }
@@ -206,10 +308,21 @@ impl ConversationManager {
                     current_embedding.to_vec()
                 };
 
-                let chunks = self.retrieval_provider
+                // Catch retrieval errors
+                let chunks = match self.retrieval_provider
                     .search(state.user_id, &query_embedding, document_id)
-                    .await
-                    .context("Retrieval failed")?;
+                    .await {
+                        Ok(res) => res,
+                        Err(e) => {
+                            self.logger.log(
+                                ActivityLog::builder(state.session_id, state.user_id, ActivityType::RetrievalError)
+                                    .status(ActivityStatus::Error)
+                                    .error(e.to_string(), "RetrievalProviderError")
+                                    .build()
+                            );
+                            return Err(e).context("Retrieval failed");
+                        }
+                    };
 
                 let summary = self.llm_provider
                     .summarize_chunks(&chunks)
@@ -251,6 +364,14 @@ impl ConversationManager {
         }
 
         warn!("Token count {} exceeds 20K, performing cascade deletion", token_count.total);
+        
+        // Log cascade deletion start
+        self.logger.log(
+             ActivityLog::builder(state.session_id, state.user_id, ActivityType::CascadeDeletion)
+                .status(ActivityStatus::Warning)
+                .token_count(token_count.total as i32)
+                .build()
+        );
 
         let mut current_count = token_count.total;
         let mut deletion_round = 1;
@@ -337,5 +458,9 @@ impl ConversationManager {
 
     pub fn cleanup_expired_sessions(&self) -> usize {
         self.cache.cleanup_expired()
+    }
+
+    pub fn logger(&self) -> &ActivityLogger {
+        &self.logger
     }
 }

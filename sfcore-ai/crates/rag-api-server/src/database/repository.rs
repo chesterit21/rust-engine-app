@@ -237,4 +237,73 @@ impl Repository {
         
         Ok(document_id)
     }
+
+    /// Ensure the processing status table exists
+    pub async fn ensure_processing_table(&self) -> Result<()> {
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS rag_document_processing (
+                document_id INT PRIMARY KEY,
+                status VARCHAR(50) NOT NULL,
+                progress FLOAT NOT NULL DEFAULT 0,
+                message TEXT,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )"#
+        )
+        .execute(self.pool.get_pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Update or insert document processing status
+    pub async fn upsert_document_processing_status(
+        &self,
+        document_id: i32,
+        status: &str,
+        progress: f32,
+        message: Option<String>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"INSERT INTO rag_document_processing 
+               (document_id, status, progress, message, updated_at)
+               VALUES ($1, $2, $3, $4, NOW())
+               ON CONFLICT (document_id) 
+               DO UPDATE SET 
+                  status = EXCLUDED.status,
+                  progress = EXCLUDED.progress,
+                  message = EXCLUDED.message,
+                  updated_at = NOW()"#
+        )
+        .bind(document_id)
+        .bind(status)
+        .bind(progress)
+        .bind(message)
+        .execute(self.pool.get_pool())
+        .await?;
+        
+        Ok(())
+    }
+
+    /// Get documents that are currently being processed for a user
+    pub async fn get_user_processing_documents(
+        &self,
+        user_id: i32,
+    ) -> Result<Vec<super::DocumentProcessingStatus>> {
+        let docs = sqlx::query_as::<_, super::DocumentProcessingStatus>(
+            r#"SELECT 
+                p.document_id,
+                p.status,
+                p.progress,
+                p.message,
+                p.updated_at
+               FROM rag_document_processing p
+               JOIN "TblDocuments" d ON d."Id" = p.document_id
+               WHERE d."Owner" = $1 AND p.status != 'completed'
+               ORDER BY p.updated_at DESC"#
+        )
+        .bind(user_id)
+        .fetch_all(self.pool.get_pool())
+        .await?;
+        
+        Ok(docs)
+    }
 }

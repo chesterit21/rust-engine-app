@@ -6,7 +6,7 @@ use crate::database::DbPool;
 use crate::security::{CustomHeaderValidator, DocumentAuthorization, IpWhitelist};
 use crate::services::{
     conversation::ConversationManager,
-    EmbeddingService, LlmService, RagService, DocumentService
+    EmbeddingService, LlmService, RagService, DocumentService, EventBus
 };
 
 /// Application state shared across handlers
@@ -22,10 +22,17 @@ pub struct AppState {
     pub document_auth: Arc<DocumentAuthorization>,
     pub ip_whitelist: Arc<IpWhitelist>,
     pub header_validator: Arc<CustomHeaderValidator>,
+    pub event_bus: Arc<EventBus>,
 }
 
 impl FromRef<AppState> for Arc<ConversationManager> {
     fn from_ref(state: &AppState) -> Self {
         state.conversation_manager.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<EventBus> {
+    fn from_ref(state: &AppState) -> Self {
+        state.event_bus.clone()
     }
 }

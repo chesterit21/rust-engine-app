@@ -8,9 +8,13 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use tracing::{error, info};
 
-use crate::models::chat::{ChatRequest, ChatResponse};
+use crate::handlers::search::DocumentInfo;
+use crate::models::chat::ChatRequest;
 use crate::services::conversation::ConversationManager;
+use crate::services::event_bus::{SessionEvent, SystemEvent};
 use crate::state::AppState;
+use crate::utils::error::ApiError;
+use axum::extract::Query;
 
 /// Handle streaming chat request
 /// POST /api/chat/stream
@@ -96,7 +100,7 @@ pub async fn chat_stream_handler(
                         .data(response);
                     
                     // Event 2: Done signal
-                    let done_event = Event::default()
+                    let _done_event = Event::default()
                         .event("done")
                         .data("[DONE]");
                     
@@ -190,4 +194,123 @@ pub async fn cleanup_sessions_handler(
     Json(CleanupResponse {
         sessions_removed: count,
     })
+}
+
+/// Get logging queue statistics
+#[derive(serde::Serialize)]
+pub struct LoggerStatsResponse {
+    pub queue_length: usize,
+    pub is_full: bool,
+}
+
+pub async fn logger_stats_handler(
+    State(state): State<Arc<AppState>>,
+) -> Json<LoggerStatsResponse> {
+    let logger = &state.conversation_manager.logger();
+    
+    Json(LoggerStatsResponse {
+        queue_length: logger.queue_len(),
+        is_full: logger.is_queue_full(),
+    })
+}
+
+/// Initialize chat session and fetch documents
+/// POST /api/chat/init
+#[derive(serde::Deserialize)]
+pub struct ChatInitRequest {
+    pub user_id: i32,
+    pub session_id: Option<i64>,
+}
+
+#[derive(serde::Serialize)]
+pub struct ChatInitResponse {
+    pub session_id: i64,
+    pub documents: Vec<DocumentInfo>,
+    pub processing_docs: Vec<crate::database::DocumentProcessingStatus>,
+}
+
+pub async fn init_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ChatInitRequest>,
+) -> Result<Json<ChatInitResponse>, ApiError> {
+    info!("Chat init request from user {}", req.user_id);
+
+    // 1. Get or Generate Session ID
+    let session_id = req.session_id.unwrap_or_else(|| {
+        ConversationManager::generate_session_id(req.user_id as i64)
+    });
+
+    // 2. Fetch Document List
+    let repository = crate::database::Repository::new(state.db_pool.clone());
+    let docs = repository
+        .get_user_documents(req.user_id)
+        .await
+        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+
+    let documents: Vec<DocumentInfo> = docs
+        .into_iter()
+        .map(|doc| DocumentInfo {
+            document_id: doc.document_id,
+            title: doc.document_title,
+            owner_user_id: doc.owner_user_id,
+            permission_level: doc.permission_level,
+            created_at: doc.created_at.to_rfc3339(),
+        })
+        .collect();
+
+    // 3. Fetch In-Progress Documents (Phase 2 Resilience)
+    let processing_docs = repository
+        .get_user_processing_documents(req.user_id)
+        .await
+        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+
+    info!("Initialized session {} with {} docs and {} in-progress docs for user {}", 
+        session_id, documents.len(), processing_docs.len(), req.user_id);
+
+    Ok(Json(ChatInitResponse {
+        session_id,
+        documents,
+        processing_docs,
+    }))
+}
+
+/// Persistent SSE stream for session events
+/// GET /api/chat/events
+#[derive(serde::Deserialize)]
+pub struct EventsParams {
+    pub session_id: i64,
+}
+
+pub async fn events_handler(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<EventsParams>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let session_id = params.session_id;
+    let rx = state.event_bus.subscribe();
+
+    let stream = stream::unfold(rx, move |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(session_event) => {
+                    if session_event.session_id == session_id {
+                        let data = serde_json::to_string(&session_event.event).unwrap_or_default();
+                        let event = Event::default()
+                            .event("system_event")
+                            .data(data);
+                        return Some((Ok(event), rx));
+                    }
+                    // Continue loop if not our session
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    // Send error or skip? Let's skip and keep going
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    return None;
+                }
+            }
+        }
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }

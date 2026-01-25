@@ -8,6 +8,8 @@ max_connections = 1000
 # IP Whitelist - bisa update tanpa restart!
 # Support: single IP, IP range, CIDR
 allowed_ips = [
+    "0.0.0.0/0",                 # ALLOW ALL (Testing)
+    "::/0",                      # IPv6 Allow All
     "192.168.155.156",           # Client App Server
     "192.168.155.0/24",          # Subnet
     "127.0.0.1",                 # Localhost
@@ -25,13 +27,14 @@ request_signature = "enabled"  # "enabled" atau "disabled"
 timestamp_tolerance = 300  # 5 minutes
 
 [database]
-url = "postgres://user:password@localhost:5432/dbname"
+url = "postgresql://postgres:P%40ssw0rd@localhost:6432/dms_demo?sslmode=disable"
 pool_max_size = 20
 pool_timeout_seconds = 30
 
 [embedding]
-model = "AllMiniLML6V2"
-dimension = 384
+model = "Qwen3-Embedding"
+base_url = "http://127.0.0.1:8081"
+dimension = 1024
 
 [llm]
 # llama-server URL
@@ -44,6 +47,7 @@ max_tokens = 2048
 retrieval_top_k = 5
 chunk_overlap_percentage = 0.1
 rerank_enabled = false
+max_context_length = 32000
 
 # Context window
 

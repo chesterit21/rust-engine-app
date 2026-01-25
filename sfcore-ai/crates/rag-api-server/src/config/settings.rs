@@ -44,6 +44,7 @@ pub struct DatabaseConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct EmbeddingConfig {
     pub model: String,
+    pub base_url: String, // Added base_url for embedding server
     pub dimension: usize,
 }
 

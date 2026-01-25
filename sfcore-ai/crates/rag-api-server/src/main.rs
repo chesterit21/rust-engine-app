@@ -15,6 +15,7 @@ use tracing::info;
 
 use rag_api_server::{
     config, database, document, handlers, models, security, services, state, utils,
+    logging,
 };
 
 use config::Settings;
@@ -22,9 +23,10 @@ use database::{DbPool, Repository};
 use security::{CustomHeaderValidator, DocumentAuthorization, IpWhitelist};
 use services::{
     conversation::ConversationManager,
-    EmbeddingService, LlmService, RagService, DocumentService
+    EmbeddingService, LlmService, RagService, DocumentService, EventBus
 };
 use state::AppState;
+use logging::{ActivityLogger, LoggerConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -51,13 +53,22 @@ async fn main() -> Result<()> {
     
     // Initialize repository
     let repository = Arc::new(Repository::new(db_pool.clone()));
+    repository.ensure_processing_table().await?;
+    info!("✅ Repository and tables initialized");
+
+    // Initialize Activity Logger
+    let logger = ActivityLogger::new(
+        db_pool.get_pool().clone(),
+        LoggerConfig::default(),
+    );
+    info!("✅ Activity logger initialized");
     
     // Initialize services
     let embedding_service = Arc::new(EmbeddingService::new(
-        settings.llm.base_url.clone(),
+        settings.embedding.base_url.clone(),
         settings.embedding.clone(),
     ));
-    
+
     let document_service = Arc::new(DocumentService::new(
         repository.clone(),
         embedding_service.clone(),
@@ -73,15 +84,17 @@ async fn main() -> Result<()> {
     ));
     
     // Initialize conversation manager
-    // We need to pass Boxed trait objects. 
-    // Since services are wrapped in Arc, we dereference and clone the inner struct (which must derive Clone).
-    // EmbeddingService, RagService, LlmService all derive Clone.
     let conversation_manager = Arc::new(ConversationManager::new(
         Box::new((*embedding_service).clone()),
         Box::new((*rag_service).clone()),
         Box::new((*llm_service).clone()),
+        logger,
     ));
     info!("✅ Conversation manager initialized");
+
+    // Initialize EventBus
+    let event_bus = Arc::new(EventBus::new(1024));
+    info!("✅ EventBus initialized");
     
     // Initialize security
     let ip_whitelist = Arc::new(IpWhitelist::new(
@@ -89,7 +102,7 @@ async fn main() -> Result<()> {
         settings.security.allowed_ips.clone(),
     )?);
     
-    // Start file watcher untuk hot-reload IP whitelist
+    // Start file watcher
     (*ip_whitelist).clone().start_watcher()?;
     info!("✅ IP whitelist watcher started");
     
@@ -114,6 +127,7 @@ async fn main() -> Result<()> {
         document_auth: document_auth.clone(),
         ip_whitelist: ip_whitelist.clone(),
         header_validator: header_validator.clone(),
+        event_bus: event_bus.clone(),
     };
 
     // Build router
@@ -141,59 +155,51 @@ async fn main() -> Result<()> {
 
 fn build_router(app_state: Arc<AppState>) -> Router {
     // Extract services for Extension injection (legacy support)
-    // We need clones for the extensions
     let rag_service = app_state.rag_service.clone();
     let embedding_service = app_state.embedding_service.clone();
     let document_auth = app_state.document_auth.clone();
     let document_service = app_state.document_service.clone();
     let ip_whitelist = app_state.ip_whitelist.clone();
     let header_validator = app_state.header_validator.clone();
-    let repository = Arc::new(Repository::new(app_state.db_pool.clone())); // Re-create repo wrapper or store in state? Store logic implies repo was made earlier.
-    // Repo is used by upload handler via Extension. 
-    // DocumentService uses repo.
-    // Handlers use: Extension(Arc<Repository>), Extension(Arc<EmbeddingService>), Extension(Arc<DocumentAuthorization>)
-    // So we must provide these.
+    let repository = Arc::new(Repository::new(app_state.db_pool.clone()));
 
-    // Public routes (no security)
+    // Public routes
     let public_routes = Router::new()
         .route("/health", get(handlers::health::health_check))
         .route("/health/ready", get(handlers::health::readiness_check));
     
-    // Protected routes (dengan security middleware)
+    // Protected routes
     let protected_routes = Router::new()
         // Chat Endpoints
         .route("/api/chat/stream", post(handlers::chat::chat_stream_handler))
         .route("/api/chat/session/new", post(handlers::chat::new_session_handler))
+        .route("/api/chat/init", post(handlers::chat::init_handler))
+        .route("/api/chat/events", get(handlers::chat::events_handler))
         .route("/api/chat/stats", get(handlers::chat::cache_stats_handler))
+        .route("/api/chat/logs/stats", get(handlers::chat::logger_stats_handler))
         .route("/api/chat/cleanup", post(handlers::chat::cleanup_sessions_handler))
         
         // Existing Endpoints
         .route("/api/search", post(handlers::search::search_handler))
         .route("/api/upload", post(handlers::upload::upload_handler))
-        .route("/api/documents", get(handlers::search::list_documents_handler))
+        .route("/api/documents", post(handlers::search::list_documents_handler))
         
         .layer(middleware::from_fn(security::middleware::security_middleware))
         
-        // Inject State (for new handlers)
-        // State is injected via .with_state() on the whole router or merge.
-        // But duplicate injection is tricky?
-        // Actually, if we use .with_state(app_state), methods using State<AppState> will work.
-        // Methods using Extension will ignore State and look for Extension.
-        // We must provide Extension layers for them.
-        
+        // Inject Extensions
         .layer(Extension(rag_service))
         .layer(Extension(embedding_service))
         .layer(Extension(ip_whitelist))
         .layer(Extension(header_validator))
         .layer(Extension(document_service)) 
         .layer(Extension(document_auth))
-        .layer(Extension(repository)); // For upload handler
+        .layer(Extension(repository));
     
     // Combine routes
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
-        .with_state(app_state) // Provide State for all routes
+        .with_state(app_state)
         .layer(
             CorsLayer::permissive()
                 .allow_origin(tower_http::cors::Any)

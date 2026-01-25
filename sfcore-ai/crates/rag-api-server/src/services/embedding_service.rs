@@ -1,6 +1,6 @@
 use crate::config::EmbeddingConfig;
 use crate::utils::error::ApiError;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -9,23 +9,9 @@ use crate::services::conversation::manager::EmbeddingProvider;
 
 #[derive(Debug, Serialize)]
 struct EmbeddingRequest {
-    content: String, // "content" or "input"? Existing uses "content". Previous fix code used "input" for v1/embeddings compatible?
-    // My existing code (Step 807) used "content". I'll checks config/settings or logs.
-    // Existing code:
-    // struct EmbeddingRequest { content: String }
-    // url: base_url + "/embedding"
-    //
-    // The Fix code (Step 7) uses:
-    // struct EmbedRequest { input: String }
-    // url: base_url + "/v1/embeddings"
-    //
-    // This suggests I should perhaps support standard OpenAI format or existing format.
-    // The user's prompt implies "rag-api-server" existing custom logic?
-    // The "Fix" code might be generic.
-    // I should stick to EXISTING logic ("content", "/embedding") unless Fix implies changing LLM backend compatibility.
-    // The settings.toml has [llm] base_url...
-    // I'll stick to EXISTING logic to avoid breaking connection with `rag-embedding-worker` or whatever LLM server.
-    // I will keep existing struct/logic but wrap in trait.
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,7 +29,10 @@ pub struct EmbeddingService {
 impl EmbeddingService {
     pub fn new(llm_base_url: String, config: EmbeddingConfig) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             base_url: llm_base_url,
             dimension: config.dimension,
         }
@@ -60,34 +49,89 @@ impl EmbeddingService {
         
         let request = EmbeddingRequest {
             content: text.to_string(),
+            input: Some(text.to_string()), // Send both for compatibility
         };
         
+        // Try /embedding first
+        let url = format!("{}/embedding", self.base_url);
         let response = self
             .client
-            .post(&format!("{}/embedding", self.base_url))
+            .post(&url)
             .json(&request)
             .send()
-            .await?;
+            .await
+            .context("Failed to connect to embedding server")?;
         
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Embedding API error: {} - {}", status, body);
+            anyhow::bail!("Embedding API error ({}): {}", status, body);
         }
         
-        let embedding_response: EmbeddingResponse = response
+        let json_value: serde_json::Value = response
             .json()
-            .await?;
+            .await
+            .context("Failed to parse embedding response as JSON")?;
         
-        if embedding_response.embedding.len() != self.dimension {
+        // Robust parsing logic
+        let embedding = if json_value.is_array() {
+            // OpenAI format: [{"embedding": [...]}] or just [...]
+            let arr = json_value.as_array().unwrap();
+            if arr.is_empty() {
+                anyhow::bail!("Empty array returned from embedding server");
+            }
+            
+            if arr[0].is_object() && arr[0]["embedding"].is_array() {
+                arr[0]["embedding"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|v: &serde_json::Value| v.as_f64().map(|f| f as f32))
+                    .collect::<Vec<f32>>()
+            } else {
+                // Direct array of floats
+                arr.iter()
+                    .filter_map(|v: &serde_json::Value| v.as_f64().map(|f| f as f32))
+                    .collect::<Vec<f32>>()
+            }
+        } else if json_value.is_object() && json_value["embedding"].is_array() {
+            // Standard llama.cpp format: {"embedding": [...]}
+            json_value["embedding"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|v: &serde_json::Value| v.as_f64().map(|f| f as f32))
+                .collect::<Vec<f32>>()
+        } else if json_value.is_object() && json_value["data"].is_array() {
+             // OpenAI data format: {"data": [{"embedding": [...]}]}
+             let data = json_value["data"].as_array().unwrap();
+             if !data.is_empty() && data[0]["embedding"].is_array() {
+                 data[0]["embedding"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|v: &serde_json::Value| v.as_f64().map(|f| f as f32))
+                    .collect::<Vec<f32>>()
+             } else {
+                 anyhow::bail!("Unrecognized embedding response format: {}", json_value);
+             }
+        } else {
+            anyhow::bail!("Unrecognized embedding response format: {}", json_value);
+        };
+        
+        if embedding.is_empty() {
+            anyhow::bail!("Generated embedding is empty");
+        }
+
+        if embedding.len() != self.dimension {
             anyhow::bail!(
                 "Embedding dimension mismatch: expected {}, got {}",
                 self.dimension,
-                embedding_response.embedding.len()
+                embedding.len()
             );
         }
         
-        Ok(embedding_response.embedding)
+        Ok(embedding)
     }
     
     /// Generate embeddings untuk batch texts
