@@ -72,7 +72,7 @@ impl Repository {
         user_id: i32,
         query_embedding: Vector,
         limit: i32,
-        document_id: Option<i32>,
+        document_ids: Option<Vec<i32>>,
     ) -> Result<Vec<DocumentChunk>> {
         let chunks = sqlx::query_as::<_, DocumentChunk>(
             r#"SELECT 
@@ -88,7 +88,7 @@ impl Repository {
         .bind(user_id)
         .bind(query_embedding)
         .bind(limit)
-        .bind(document_id)
+        .bind(document_ids)
         .persistent(false)
         .fetch_all(self.pool.get_pool())
         .await?;
@@ -105,7 +105,7 @@ impl Repository {
         query_embedding: Vector,
         query_text: String,
         limit: i32,
-        document_id: Option<i32>,
+        document_ids: Option<Vec<i32>>,
     ) -> Result<Vec<DocumentChunk>> {
         #[derive(FromRow)]
         struct HybridResult {
@@ -131,7 +131,7 @@ impl Repository {
         .bind(query_embedding)
         .bind(&query_text)
         .bind(limit)
-        .bind(document_id)
+        .bind(document_ids)
         .persistent(false)
         .fetch_all(self.pool.get_pool())
         .await?;

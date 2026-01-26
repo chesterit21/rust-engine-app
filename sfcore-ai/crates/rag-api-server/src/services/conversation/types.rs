@@ -11,7 +11,7 @@ pub struct ConversationState {
     pub user_id: i64,
     
     /// Current document context (None if general chat)
-    pub document_id: Option<i64>,
+    pub document_ids: Option<Vec<i64>>,
     
     /// Message history (max 10 items = 5 user+assistant pairs)
     pub messages: Vec<ChatMessage>,
@@ -37,12 +37,12 @@ pub struct ConversationState {
 
 impl ConversationState {
     /// Create new conversation session
-    pub fn new(session_id: SessionId, user_id: i64, document_id: Option<i64>) -> Self {
+    pub fn new(session_id: SessionId, user_id: i64, document_ids: Option<Vec<i64>>) -> Self {
         let now = Instant::now();
         Self {
             session_id,
             user_id,
-            document_id,
+            document_ids,
             messages: Vec::with_capacity(10), // Pre-allocate for 5 pairs
             system_context: String::new(),
             last_retrieval_summary: String::new(),
@@ -158,7 +158,7 @@ pub enum RetrievalDecision {
 #[derive(Debug, Clone)]
 pub enum RetrievalReason {
     FirstMessage,
-    DocumentIdChanged,
+    DocumentContextChanged,
     LowSimilarity(f32),  // Similarity score
     
     // NEW:

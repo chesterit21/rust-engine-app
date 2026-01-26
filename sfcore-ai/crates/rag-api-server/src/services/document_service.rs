@@ -82,6 +82,7 @@ impl DocumentService {
         debug!("Extracted {} characters", content.len());
         
         if content.trim().is_empty() {
+            report_progress(0.0, "Empty document content".to_string(), "failed".to_string());
             let _ = self.repository.upsert_document_processing_status(document_id, "failed", 0.0, Some("Empty document".to_string())).await;
             return Err(ApiError::BadRequest(
                 "No text content found in document".to_string(),
@@ -94,6 +95,7 @@ impl DocumentService {
         info!("Created {} chunks", chunks.len());
         
         if chunks.is_empty() {
+             report_progress(0.0, "Document parsing failed".to_string(), "failed".to_string());
              let _ = self.repository.upsert_document_processing_status(document_id, "failed", 0.0, Some("No chunks created".to_string())).await;
             return Err(ApiError::BadRequest("Failed to create chunks".to_string()));
         }

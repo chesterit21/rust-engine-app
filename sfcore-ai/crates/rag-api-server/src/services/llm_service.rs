@@ -133,12 +133,22 @@ impl LlmService {
         &self,
         messages: Vec<ChatMessage>,
     ) -> Result<String, ApiError> {
-        debug!("Starting chat generation with {} messages", messages.len());
+        self.generate_chat_with(messages, self.config.max_tokens, 0.7).await
+    }
+
+    /// Generate completion with custom parameters (Helper for Planner)
+    async fn generate_chat_with(
+        &self,
+        messages: Vec<ChatMessage>,
+        max_tokens: usize,
+        temperature: f32,
+    ) -> Result<String, ApiError> {
+        debug!("Starting chat generation with {} messages (max_tokens={}, temp={})", messages.len(), max_tokens, temperature);
         
         let request = ChatCompletionRequest {
             messages,
-            max_tokens: self.config.max_tokens,
-            temperature: 0.7,
+            max_tokens,
+            temperature,
             stream: false,
         };
         
@@ -188,6 +198,17 @@ impl LlmService {
 impl LlmProvider for LlmService {
     async fn generate(&self, messages: &[ChatMessage]) -> Result<String> {
         self.generate_chat(messages.to_vec())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    async fn generate_with(
+        &self,
+        messages: &[ChatMessage],
+        max_tokens: usize,
+        temperature: f32,
+    ) -> Result<String> {
+        self.generate_chat_with(messages.to_vec(), max_tokens, temperature)
             .await
             .map_err(|e| anyhow::anyhow!(e))
     }

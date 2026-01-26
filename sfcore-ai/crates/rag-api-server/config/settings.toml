@@ -3,28 +3,21 @@ host = "0.0.0.0"
 port = 8000
 max_connections = 1000
 
-# Security settings
 [security]
-# IP Whitelist - bisa update tanpa restart!
-# Support: single IP, IP range, CIDR
 allowed_ips = [
-    "0.0.0.0/0",                 # ALLOW ALL (Testing)
-    "::/0",                      # IPv6 Allow All
-    "192.168.155.156",           # Client App Server
-    "192.168.155.0/24",          # Subnet
-    "127.0.0.1",                 # Localhost
-    "::1"                        # IPv6 localhost
+    "0.0.0.0/0",
+    "::/0",
+    "192.168.155.156",
+    "192.168.155.0/24",
+    "127.0.0.1",
+    "::1"
 ]
 
-# Custom HTTP Headers yang wajib ada
 [security.custom_headers]
-# Header name dan expected value
 app_id = "DMS-CLIENT-APP-2026"
-api_key = "your-secret-api-key-here-change-me"
-request_signature = "enabled"  # "enabled" atau "disabled"
-
-# Header timeout (dalam detik)
-timestamp_tolerance = 31536000  # 1 year (effectively disabled to support longterm SSE retry without regen headers)
+api_key = "SHUBA-APP-DMS-RAG"
+request_signature = "enabled"
+timestamp_tolerance = 31536000
 
 [database]
 url = "postgresql://postgres:P%40ssw0rd@localhost:6432/dms_demo?sslmode=disable"
@@ -37,50 +30,31 @@ base_url = "http://127.0.0.1:8081"
 dimension = 1024
 
 [llm]
-# llama-server URL
 base_url = "http://127.0.0.1:8080"
 timeout_seconds = 300
 max_tokens = 8048
 stream_response = true
 
 [rag]
-# RAG settings
 retrieval_top_k = 10
 chunk_size = 1500
 chunk_overlap_percentage = 0.1
-rerank_enabled = true
+rerank_enabled = true  # CHANGED: Enable hybrid search
 max_context_length = 80000
-max_context_tokens = 20000 
+max_context_tokens = 20000  # NEW: Reserve 12K for system+response from 32K total
 document_path = "C:\\DMS\\uploads\\"
 
-# Context window
-
-# === NEW: Conversation Memory Settings ===
 [conversation]
-# Session expiration (6 hours in seconds)
 session_expiration_seconds = 21600
-
-# Token limits
-token_soft_limit = 20000  # Start deletion
-token_hard_limit = 23000  # Force truncate retrieval
-model_max_tokens = 32000  # Model capacity
-
-# Sliding window
-max_message_pairs = 5  # Max 5 user+assistant pairs
-
-# Retrieval decision
-similarity_threshold = 0.75  # Skip retrieval if > this
-
-# Weighted embedding
+token_soft_limit = 20000
+token_hard_limit = 23000
+model_max_tokens = 32000
+max_message_pairs = 5
+similarity_threshold = 0.75
 current_message_weight = 0.7
 history_weight = 0.3
 max_history_for_context = 5
-
-# Memory limit
 max_ram_usage_percent = 90.0
-
-# File: config/settings.toml
-# REPLACE [prompts] section with this enhanced version:
 
 [prompts]
 main_system_prompt = """
@@ -88,53 +62,22 @@ You are an intelligent AI assistant for a Document Management System.
 
 Your role is to help users understand and work with their documents by:
 - Answering questions based on the provided document context
-- Providing accurate information from the retrieved documents  
+- Providing accurate information from the retrieved documents
 - Being concise and helpful in your responses
 - Admitting when information is not available in the context
 
-**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**
-**CRITICAL RULES (MANDATORY)**
-**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**
+Guidelines:
+- Always base your answers on the provided document context
+- If the context doesn't contain relevant information, say so clearly
+- Cite document sources when possible
+- Be conversational but professional
+- Keep responses focused and relevant to the user's question
 
-1. **SOURCE CITATION (WAJIB)**
-   - Every factual claim MUST include source: [doc_ID] or [doc_ID, chunk_ID]
-   - Example: "According to [doc_123], the Q1 budget is 500 million"
-   - When comparing documents:
-     * "From [doc_123]: 2023 budget is 500 million"  
-     * "While [doc_456]: 2024 budget increased to 750 million"
-
-2. **CONTEXT VERIFICATION**
-   - If context is INSUFFICIENT but documents are relevant:
-     → Respond with: <NEED_MORE_CONTEXT doc_ids="doc_1,doc_3"/>
-     → Briefly explain why additional info is needed
-   
-   - If context is COMPLETELY IRRELEVANT:
-     → Respond with: <NOT_RELEVANT/>
-     → Explain why documents are not relevant
-   
-   - If context is SUFFICIENT:
-     → Provide complete answer with citations
-
-3. **RESPONSE QUALITY**
-   - Start with direct answer (no fluff)
-   - Use specific numbers/dates/names from documents
-   - If documents conflict, mention BOTH versions with sources
-   - Never fabricate information not in documents
-   - When uncertain, request additional context
-
-4. **MULTI-DOCUMENT HANDLING**
-   - When answer comes from MULTIPLE documents:
-```
-     Based on available documents:
-     
-     1. [doc_123] states: (info from doc 123)
-     2. [doc_456] shows: (info from doc 456)
-     
-     Summary: (synthesis)
-```
-
-**REMEMBER: Citations are MANDATORY for every factual claim!**
-**━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━**
+IMPORTANT:
+At the end of your response, you MUST list the document titles you used as references.
+Format:
+References:
+- [Document Title]
 """
 
 context_extraction_system_prompt = """
@@ -149,5 +92,4 @@ Instructions:
 - Extract ALL information from the chunks above that helps answer the query.
 - Synthesize it into a clear, concise summary.
 - If the chunks contain no relevant information, state that clearly.
-- Maintain source attribution by noting which chunks provide which information.
 """

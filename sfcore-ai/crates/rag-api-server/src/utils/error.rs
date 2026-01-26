@@ -28,6 +28,9 @@ pub enum ApiError {
     
     #[error("LLM error: {0}")]
     LlmError(String),
+    
+    #[error("Embedding error: {0}")]
+    EmbeddingError(String),  // ADD THIS LINE
 }
 
 #[derive(Serialize)]
@@ -66,6 +69,10 @@ impl IntoResponse for ApiError {
             ApiError::LlmError(msg) => {
                 tracing::error!("LLM error: {}", msg);
                 (StatusCode::SERVICE_UNAVAILABLE, "LlmError", msg)
+            },
+            ApiError::EmbeddingError(msg) => {
+                tracing::error!("Embedding error: {}", msg);
+                (StatusCode::SERVICE_UNAVAILABLE, "EmbeddingError", msg)
             },
         };
         

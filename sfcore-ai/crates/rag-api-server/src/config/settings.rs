@@ -1,5 +1,5 @@
 use anyhow::Result;
-use config::{Config, ConfigError, Environment, File};
+use config::{Config, Environment, File};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -45,7 +45,7 @@ pub struct DatabaseConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct EmbeddingConfig {
     pub model: String,
-    pub base_url: String, // Added base_url for embedding server
+    pub base_url: String,
     pub dimension: usize,
 }
 
@@ -63,11 +63,10 @@ pub struct RagConfig {
     pub chunk_size: usize,
     pub chunk_overlap_percentage: f32,
     pub rerank_enabled: bool,
-    pub max_context_length: usize,  // Keep for backward compat
-    pub max_context_tokens: usize,  // NEW: token-based limit
+    pub max_context_length: usize,
+    pub max_context_tokens: usize,  // NEW FIELD - Token-based limit
     pub document_path: String,
 }
-
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PromptsConfig {

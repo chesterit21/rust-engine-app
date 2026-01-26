@@ -52,7 +52,15 @@ pub struct ChatRequest {
     pub user_id: i64,
     pub session_id: SessionId,
     pub message: String,
+
+    /// Backward-compatible: single selected document
+    #[serde(default)]
     pub document_id: Option<i64>,
+
+    /// NEW: multi selected documents (client bisa kirim satu atau lebih)
+    /// Note: pakai serde(default) biar request lama tetap valid.
+    #[serde(default)]
+    pub document_ids: Option<Vec<i64>>,
 }
 
 /// Chat response (for non-streaming)

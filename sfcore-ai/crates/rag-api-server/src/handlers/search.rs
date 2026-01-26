@@ -51,8 +51,10 @@ pub async fn search_handler(
     
     // Search
     let limit = request.limit.unwrap_or(10).min(50) as i32;
+    let document_ids = request.document_id.map(|id| vec![id]);
+    
     let chunks = repository
-        .search_user_documents(request.user_id, vector, limit, request.document_id)
+        .search_user_documents(request.user_id, vector, limit, document_ids)
         .await
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
     

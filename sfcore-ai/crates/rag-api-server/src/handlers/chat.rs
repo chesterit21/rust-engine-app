@@ -18,6 +18,9 @@ use axum::extract::Query;
 
 /// Handle streaming chat request
 /// POST /api/chat/stream
+use chrono::Utc;
+use crate::services::conversation::manager::ChatStreamChunk;
+
 pub async fn chat_stream_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ChatRequest>,
@@ -36,34 +39,75 @@ pub async fn chat_stream_handler(
     let session_id = req.session_id;
     let user_id = req.user_id;
     let message = req.message.clone();
+    
+    // Backward compatible + NEW multi-doc
     let document_id = req.document_id;
+    let document_ids = req.document_ids.clone();
+    
+    let request_id = format!("{}-{}-{}", session_id, user_id, Utc::now().timestamp_millis());
     
     // Create SSE stream
     let stream = async_stream::stream! {
         // Execute manager logic which now returns a Stream
-        match conversation_manager.handle_message(session_id, user_id, message, document_id).await {
+        match conversation_manager
+            .handle_message(session_id, user_id, message, document_id, document_ids, request_id.clone())
+            .await
+        {
             Ok(mut response_stream) => {
                 use futures::StreamExt;
                 
                 // Forward chunks as they arrive
                 while let Some(chunk_res) = response_stream.next().await {
                     match chunk_res {
-                        Ok(chunk) => {
-                            yield Ok(Event::default().event("message").data(chunk));
-                        }
+                        Ok(chunk) => match chunk {
+                            ChatStreamChunk::Stage { request_id, phase, progress, text, detail } => {
+                                let data = serde_json::to_string(&serde_json::json!({
+                                    "request_id": request_id,
+                                    "phase": phase,
+                                    "progress": progress,
+                                    "text": text,
+                                    "detail": detail
+                                })).unwrap_or_else(|_| "{}".to_string());
+
+                                yield Ok(Event::default().event("stage").data(data));
+                            }
+                            ChatStreamChunk::Message { request_id, delta } => {
+                                let data = serde_json::to_string(&serde_json::json!({
+                                    "request_id": request_id,
+                                    "delta": delta
+                                })).unwrap_or_else(|_| "{}".to_string());
+
+                                yield Ok(Event::default().event("message").data(data));
+                            }
+                            ChatStreamChunk::Done { request_id } => {
+                                let data = serde_json::to_string(&serde_json::json!({
+                                    "request_id": request_id,
+                                    "final": true
+                                })).unwrap_or_else(|_| "{}".to_string());
+
+                                yield Ok(Event::default().event("done").data(data));
+                            }
+                        },
                         Err(e) => {
                             error!("Stream error: {}", e);
-                            yield Ok(Event::default().event("error").data(format!("{{\"message\": \"{}\"}}", e)));
+                            let data = serde_json::to_string(&serde_json::json!({
+                                "request_id": request_id,
+                                "message": e.to_string()
+                            })).unwrap_or_else(|_| "{}".to_string());
+
+                            yield Ok(Event::default().event("error").data(data));
                         }
                     }
                 }
-                
-                // Signal done
-                yield Ok(Event::default().event("done").data("[DONE]"));
             }
             Err(e) => {
                 error!("Error handling message: {}", e);
-                yield Ok(Event::default().event("error").data(format!("{{\"message\": \"{}\"}}", e)));
+                let data = serde_json::to_string(&serde_json::json!({
+                    "request_id": request_id,
+                    "message": e.to_string()
+                })).unwrap_or_else(|_| "{}".to_string());
+
+                yield Ok(Event::default().event("error").data(data));
             }
         }
     };

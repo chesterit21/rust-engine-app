@@ -2,6 +2,9 @@
 target/
 **/*.rs.bk
 
+# UI
+shuba-docubase/
+
 # AI Models (Large files)
 sfcore-ai/models/
 **/*.gguf

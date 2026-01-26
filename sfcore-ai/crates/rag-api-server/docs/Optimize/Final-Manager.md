@@ -1,3 +1,20 @@
+Sip, next step: kita bikin `stage` event lebih “Gemini-like” dengan **progress 0–100 + detail opsional**, dan status text-nya variatif (tidak template-kerasa), plus bisa update berkali-kali dalam 1 request.
+
+## Target behavior
+
+- Client selalu nerima event:
+  - `stage`: `{ request_id, phase, progress, text, detail? }`
+  - `message`: `{ request_id, delta }`
+  - `done`: `{ request_id, final:true }`
+- Progress naik natural (mis. 5 → 15 → 35 → 60 → 85 → 95 → 100), dan teks stage berubah-ubah biar gak monoton.
+
+***
+
+## 1) Replace `src/services/conversation/manager.rs` (VERSI V2)
+
+Replace file manager kamu dengan versi ini (full). Ini masih kompatibel dengan loop verifier kamu, dan output final tetap konsisten karena yang di-stream ke UI adalah “final_answer” yang sudah lolos verifikasi.
+
+```rust
 /// manager.rs
 use anyhow::{Context, Result};
 use futures::stream::Stream;
@@ -39,29 +56,6 @@ pub enum ChatStreamChunk {
     },
 }
 
-/// ===== Planner Types =====
-#[derive(Debug, serde::Deserialize)]
-struct PlannerOut {
-    intent: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PlannerIntent {
-    Metadata,
-    Vector,
-    Clarify,
-}
-
-impl PlannerIntent {
-    fn from_str(s: &str) -> Self {
-        match s.trim().to_lowercase().as_str() {
-            "metadata" => Self::Metadata,
-            "clarify" => Self::Clarify,
-            _ => Self::Vector,
-        }
-    }
-}
-
 /// Trait for embedding service
 #[async_trait::async_trait]
 pub trait EmbeddingProvider: Send + Sync {
@@ -82,9 +76,7 @@ pub trait RetrievalProvider: Send + Sync {
         &self,
         user_id: i64,
         embedding: &[f32],
-        query_text: &str,
         document_id: Option<i64>,
-        document_ids: Option<Vec<i64>>,
     ) -> Result<Vec<RetrievalChunk>>;
 
     async fn get_document_metadata(&self, document_id: i32) -> Result<DocumentMetadata>;
@@ -96,15 +88,6 @@ pub trait RetrievalProvider: Send + Sync {
 #[async_trait::async_trait]
 pub trait LlmProvider: Send + Sync {
     async fn generate(&self, messages: &[ChatMessage]) -> Result<String>;
-    
-    // NEW: planner-friendly generation
-    async fn generate_with(
-        &self,
-        messages: &[ChatMessage],
-        max_tokens: usize,
-        temperature: f32,
-    ) -> Result<String>;
-
     async fn generate_stream(
         &self,
         messages: &[ChatMessage],
@@ -160,6 +143,7 @@ impl ConversationManager {
     }
 
     fn stage_text(request_id: &str, phase: &str, progress: u8, detail: Option<&str>) -> String {
+        // status text dibuat variatif + sedikit adaptasi progress
         let options: &[&str] = match phase {
             "understand" => &[
                 "Oke, gue tangkep dulu maksud pertanyaanmu ya…",
@@ -168,12 +152,6 @@ impl ConversationManager {
                 "Oke, gue cek dulu arah jawabannya…",
                 "Sip, gue pastiin dulu kebutuhan jawabannya…",
                 "Oke, gue interpret dulu intent pertanyaannya…",
-            ],
-            "plan" => &[
-                "Oke, gue rencanain langkah pencariannya…",
-                "Sip, gue tenuin strategi jawabnya…",
-                "Bentar, gue cek perlu cari di dokumen atau metadata…",
-                "Oke, gue filter dulu tipe informasinya…",
             ],
             "embed" => &[
                 "Lagi proses pertanyaannya sebentar…",
@@ -213,6 +191,7 @@ impl ConversationManager {
         let idx = Self::stable_pick(request_id, phase, options.len());
         let base = options[idx];
 
+        // kecilin “template feel”: inject progress & detail secara halus
         let mut suffix = String::new();
         if progress >= 60 && progress < 85 {
             suffix.push_str(" (sebentar lagi kelar)");
@@ -277,19 +256,9 @@ impl ConversationManager {
         user_id: i64,
         message: String,
         document_id: Option<i64>,
-        document_ids: Option<Vec<i64>>,
         request_id: String,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatStreamChunk, anyhow::Error>> + Send>>> {
         let start_time = Instant::now();
-
-        // Merge legacy document_id into document_ids
-        let mut final_doc_ids = document_ids.unwrap_or_default();
-        if let Some(id) = document_id {
-            if !final_doc_ids.contains(&id) {
-                final_doc_ids.push(id);
-            }
-        }
-        let effective_doc_ids = if final_doc_ids.is_empty() { None } else { Some(final_doc_ids) };
 
         self.logger.log(
             ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
@@ -297,16 +266,12 @@ impl ConversationManager {
                 .build(),
         );
 
-        let mut state = self.get_or_create_session(session_id, user_id, effective_doc_ids.clone()).await?;
+        let mut state = self.get_or_create_session(session_id, user_id, document_id).await?;
 
         self.logger.log(
             ActivityLog::builder(session_id, user_id, ActivityType::RequestReceived)
                 .message(&message)
-                .document_id(
-                    effective_doc_ids.as_ref()
-                        .and_then(|ids| ids.first().copied())
-                        .unwrap_or(0)
-                )
+                .document_id(document_id.unwrap_or(0))
                 .status(ActivityStatus::Info)
                 .build(),
         );
@@ -324,57 +289,23 @@ impl ConversationManager {
         let mut final_state = state;
 
         let stream = async_stream::try_stream! {
+            // PROGRESS PLAN:
+            // understand 5
+            // embed 15 -> 25
+            // retrieve 35 -> 60
+            // compose 75
+            // finalize 90 -> 100
+
             yield ConversationManager::stage_event(&request_id, "understand", 5, None);
 
-            // === PLANNER CALL ===
-            yield ConversationManager::stage_event(&request_id, "plan", 10, None);
+            yield ConversationManager::stage_event(&request_id, "embed", 15, None);
 
-            let planner_messages = vec![
-                ChatMessage::system(
-                    "You are a planning module for a RAG system.\n\
-                    Return ONLY valid JSON exactly like: {\"intent\":\"metadata\"} or {\"intent\":\"vector\"} or {\"intent\":\"clarify\"}.\n\
-                    No markdown. No extra keys."
-                        .to_string(),
-                ),
-                ChatMessage::user(format!(
-                    "message: {}\ndocument_ids: {:?}",
-                    message, effective_doc_ids
-                )),
-            ];
-
-            let planner_raw = manager.llm_provider
-                .generate_with(&planner_messages, 160, 0.0)
+            let query_embedding = manager.embedding_provider
+                .embed(&message)
                 .await
-                .unwrap_or_else(|_| "{\"intent\":\"vector\"}".to_string());
+                .context("Failed to generate embedding")?;
 
-            let planner_out = serde_json::from_str::<PlannerOut>(&planner_raw)
-                .unwrap_or(PlannerOut { intent: "vector".to_string() });
-
-            let planner_intent = PlannerIntent::from_str(&planner_out.intent);
-            
-            manager.logger.log(
-                 ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
-                    .message(&format!("PLANNER INTENT: {:?}", planner_intent))
-                    .build(),
-            );
-
-            // === EMBEDDING (Only if not metadata) ===
-            let mut query_embedding: Option<Vec<f32>> = None;
-
-            if planner_intent != PlannerIntent::Metadata {
-                yield ConversationManager::stage_event(&request_id, "embed", 15, None);
-                
-                query_embedding = Some(
-                    manager.embedding_provider
-                        .embed(&message)
-                        .await
-                        .context("Failed to generate embedding")?
-                );
-                
-                yield ConversationManager::stage_event(&request_id, "embed", 25, Some("Siap cari konteks…".to_string()));
-            } else {
-                 yield ConversationManager::stage_event(&request_id, "embed", 20, Some("Skip embedding (metadata only)".to_string()));
-            }
+            yield ConversationManager::stage_event(&request_id, "embed", 25, Some("Siap cari konteks…".to_string()));
 
             let verifier = LlmVerifier::new(3);
             let mut tried_chunk_ids: HashSet<i64> = HashSet::new();
@@ -395,52 +326,25 @@ impl ConversationManager {
                     break;
                 }
 
-                // === RETRIEVAL DECISION (Planner Aware) ===
-                let decision = match planner_intent {
-                    PlannerIntent::Metadata => RetrievalDecision::Retrieve {
-                        reason: RetrievalReason::DocumentMetadataQuery,
-                        context_aware: false,
-                    },
-                    PlannerIntent::Clarify => RetrievalDecision::Retrieve {
-                        reason: RetrievalReason::ClarificationWithContext,
-                        context_aware: true,
-                    },
-                    PlannerIntent::Vector => manager.context_builder.decide_retrieval(
-                        &final_state,
-                        &message,
-                        effective_doc_ids.clone(),
-                        query_embedding.as_ref(),
-                    )?,
-                };
-                
-                // Override for subsequent iterations to use standar vector search
-                // (Only trust planner heavily on first iteration)
-                let decision = if iteration > 1 && planner_intent == PlannerIntent::Metadata {
-                     manager.context_builder.decide_retrieval(
-                        &final_state,
-                        &message,
-                        effective_doc_ids.clone(),
-                        query_embedding.as_ref(),
-                    )?
-                } else {
-                    decision
-                };
+                let decision = manager.context_builder.decide_retrieval(
+                    &final_state,
+                    &message,
+                    document_id,
+                    Some(&query_embedding),
+                )?;
 
                 if matches!(decision, RetrievalDecision::Retrieve { .. }) {
-                    let d = effective_doc_ids.as_ref().map(|ids| format!("docs: {}", ids.len()));
+                    let d = document_id.map(|id| format!("doc_id: {}", id));
                     yield ConversationManager::stage_event(&request_id, "retrieve", 35, d);
                 }
 
                 let retrieval_start = Instant::now();
-                
-                let emb_slice: &[f32] = query_embedding.as_deref().unwrap_or(&[]);
-                
                 let (system_context, metrics) = manager.execute_retrieval_with_metrics(
                     &mut final_state,
                     &decision,
                     &message,
-                    effective_doc_ids.clone(),
-                    emb_slice,
+                    document_id,
+                    &query_embedding,
                     &tried_chunk_ids,
                 ).await?;
 
@@ -509,11 +413,7 @@ impl ConversationManager {
                                 .processing_time(total_duration)
                                 .llm_duration(llm_duration)
                                 .retrieval_duration(retrieval_duration_total)
-                                .document_id(
-                                    effective_doc_ids.as_ref()
-                                        .and_then(|ids| ids.first().copied())
-                                        .unwrap_or(0)
-                                )
+                                .document_id(document_id.unwrap_or(0))
                                 .custom("retrieval_iterations", iteration as i64)
                                 .custom("context_truncated", if context_metrics.truncated { 1i64 } else { 0i64 })
                                 .custom("documents_retrieved", context_metrics.documents_included as i64)
@@ -572,6 +472,7 @@ impl ConversationManager {
             yield ConversationManager::stage_event(&request_id, "finalize", 90, None);
 
             // Stream final answer (server-side streaming)
+            // Optional: kirim progress naik selama streaming biar UI “hidup”
             let deltas = ConversationManager::stream_text_as_deltas(&request_id, &final_answer, 48);
             let total = deltas.len().max(1);
 
@@ -586,10 +487,7 @@ impl ConversationManager {
 
             // Update state
             final_state.messages.push(ChatMessage::assistant(&final_answer));
-            // Only update last_query_embedding if we actually generated one
-            if let Some(emb) = query_embedding {
-                final_state.last_query_embedding = Some(emb);
-            }
+            final_state.last_query_embedding = Some(query_embedding);
             final_state.metadata.total_messages += 2;
             final_state.touch();
             manager.cache.set(session_id, final_state);
@@ -606,7 +504,7 @@ impl ConversationManager {
         state: &mut ConversationState,
         decision: &RetrievalDecision,
         current_message: &str,
-        document_ids: Option<Vec<i64>>,
+        document_id: Option<i64>,
         current_embedding: &[f32],
         tried_chunk_ids: &HashSet<i64>,
     ) -> Result<(String, ContextMetrics)> {
@@ -619,7 +517,7 @@ impl ConversationManager {
 
             RetrievalDecision::Retrieve { reason, context_aware } => {
                 if matches!(reason, RetrievalReason::DocumentMetadataQuery) {
-                    let context = self.execute_metadata_query(state, document_ids).await?;
+                    let context = self.execute_metadata_query(state, document_id).await?;
                     return Ok((context, ContextMetrics::default()));
                 }
 
@@ -638,13 +536,7 @@ impl ConversationManager {
                 };
 
                 let mut chunks = self.retrieval_provider
-                    .search(
-                        state.user_id, 
-                        &query_embedding, 
-                        current_message, 
-                        None, 
-                        document_ids.clone()
-                    )
+                    .search(state.user_id, &query_embedding, document_id)
                     .await
                     .context("Retrieval failed")?;
 
@@ -679,7 +571,7 @@ impl ConversationManager {
 
                 state.system_context = context.clone();
                 state.last_retrieval_summary = context.clone();
-                state.document_ids = document_ids;
+                state.document_id = document_id;
 
                 Ok((context, metrics))
             }
@@ -727,8 +619,8 @@ impl ConversationManager {
 
             for chunk in chunks {
                 let chunk_text = format!(
-                    "<chunk id=\"chunk_{}\" page=\"{}\" similarity=\"{:.3}\">\n{}\n</chunk>\n\n",
-                    chunk.chunk_id, chunk.page_number.unwrap_or(0), chunk.similarity, chunk.content.trim()
+                    "<chunk id=\"chunk_{}\" similarity=\"{:.3}\">\n{}\n</chunk>\n\n",
+                    chunk.chunk_id, chunk.similarity, chunk.content.trim()
                 );
 
                 if current_tokens + token_estimator::estimate_tokens(&chunk_text) > max_tokens {
@@ -751,47 +643,40 @@ impl ConversationManager {
     async fn execute_metadata_query(
         &self,
         state: &mut ConversationState,
-        document_ids: Option<Vec<i64>>,
+        document_id: Option<i64>,
     ) -> Result<String> {
-        // Only fetch metadata if there is at least one document
-        if let Some(ids) = &document_ids {
-             if let Some(&first_doc_id) = ids.first() {
-                let overview = self.retrieval_provider
-                    .get_document_overview(first_doc_id as i32, 5)
-                    .await
-                    .context("Failed to fetch document overview")?;
+        if let Some(doc_id) = document_id {
+            let overview = self.retrieval_provider
+                .get_document_overview(doc_id as i32, 5)
+                .await
+                .context("Failed to fetch document overview")?;
 
-                let context_text = self.build_metadata_context(&overview);
-                let system_context = self.context_builder.build_system_context(
-                    &context_text,
-                    Some(&format!("Document: {}", overview.metadata.title)),
-                );
+            let context_text = self.build_metadata_context(&overview);
+            let system_context = self.context_builder.build_system_context(
+                &context_text,
+                Some(&format!("Document: {}", overview.metadata.title)),
+            );
 
-                state.system_context = system_context.clone();
-                state.last_retrieval_summary = context_text;
-                state.document_ids = document_ids.clone();
-                state.metadata.total_retrievals += 1;
+            state.system_context = system_context.clone();
+            state.last_retrieval_summary = context_text;
+            state.document_id = document_id;
+            state.metadata.total_retrievals += 1;
 
-                return Ok(system_context);
-            }
+            Ok(system_context)
+        } else {
+            let msg = "Untuk menjawab pertanyaan tentang dokumen, silakan upload atau pilih dokumen terlebih dahulu.";
+            state.system_context = msg.to_string();
+            Ok(msg.to_string())
         }
-        
-        let msg = "Untuk menjawab pertanyaan tentang dokumen, silakan upload atau pilih dokumen terlebih dahulu.";
-        state.system_context = msg.to_string();
-        Ok(msg.to_string())
     }
 
     pub async fn get_or_create_session(
         &self,
         session_id: SessionId,
         user_id: i64,
-        document_ids: Option<Vec<i64>>,
+        document_id: Option<i64>,
     ) -> Result<ConversationState> {
-        if let Some(mut state) = self.cache.get(session_id) {
-            // Update document scope if changed
-            if state.document_ids != document_ids {
-                 state.document_ids = document_ids;
-            }
+        if let Some(state) = self.cache.get(session_id) {
             return Ok(state);
         }
 
@@ -805,7 +690,7 @@ impl ConversationManager {
                 .build(),
         );
 
-        let state = ConversationState::new(session_id, user_id, document_ids);
+        let state = ConversationState::new(session_id, user_id, document_id);
         self.cache.set(session_id, state.clone());
         Ok(state)
     }
@@ -894,3 +779,115 @@ impl ConversationManager {
         context
     }
 }
+```
+
+***
+
+## 2) Replace `src/handlers/chat.rs` (update payload stage v2)
+
+Handler ini sekarang ikut ngirim `progress` dan `detail` ke client.
+
+```rust
+// (ambil file kamu sekarang, lalu replace fungsi chat_stream_handler saja dengan versi ini)
+
+use chrono::Utc;
+use crate::services::conversation::manager::ChatStreamChunk;
+
+pub async fn chat_stream_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ChatRequest>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (axum::http::StatusCode, String)> {
+    info!(?req, "Incoming chat request");
+
+    if req.message.trim().is_empty() {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            "Message cannot be empty".to_string(),
+        ));
+    }
+
+    let conversation_manager = state.conversation_manager.clone();
+    let session_id = req.session_id;
+    let user_id = req.user_id;
+    let message = req.message.clone();
+    let document_id = req.document_id;
+
+    let request_id = format!("{}-{}-{}", session_id, user_id, Utc::now().timestamp_millis());
+
+    let stream = async_stream::stream! {
+        match conversation_manager
+            .handle_message(session_id, user_id, message, document_id, request_id.clone())
+            .await
+        {
+            Ok(mut response_stream) => {
+                use futures::StreamExt;
+
+                while let Some(chunk_res) = response_stream.next().await {
+                    match chunk_res {
+                        Ok(chunk) => match chunk {
+                            ChatStreamChunk::Stage { request_id, phase, progress, text, detail } => {
+                                let data = serde_json::to_string(&serde_json::json!({
+                                    "request_id": request_id,
+                                    "phase": phase,
+                                    "progress": progress,
+                                    "text": text,
+                                    "detail": detail
+                                })).unwrap_or_else(|_| "{}".to_string());
+
+                                yield Ok(Event::default().event("stage").data(data));
+                            }
+                            ChatStreamChunk::Message { request_id, delta } => {
+                                let data = serde_json::to_string(&serde_json::json!({
+                                    "request_id": request_id,
+                                    "delta": delta
+                                })).unwrap_or_else(|_| "{}".to_string());
+
+                                yield Ok(Event::default().event("message").data(data));
+                            }
+                            ChatStreamChunk::Done { request_id } => {
+                                let data = serde_json::to_string(&serde_json::json!({
+                                    "request_id": request_id,
+                                    "final": true
+                                })).unwrap_or_else(|_| "{}".to_string());
+
+                                yield Ok(Event::default().event("done").data(data));
+                            }
+                        },
+                        Err(e) => {
+                            error!("Stream error: {}", e);
+                            let data = serde_json::to_string(&serde_json::json!({
+                                "request_id": request_id,
+                                "message": e.to_string()
+                            })).unwrap_or_else(|_| "{}".to_string());
+
+                            yield Ok(Event::default().event("error").data(data));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Error handling message: {}", e);
+                let data = serde_json::to_string(&serde_json::json!({
+                    "request_id": request_id,
+                    "message": e.to_string()
+                })).unwrap_or_else(|_| "{}".to_string());
+
+                yield Ok(Event::default().event("error").data(data));
+            }
+        }
+    };
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+```
+
+***
+
+## 3) Client-side rules (biar UX “hidup”)
+
+- `stage.text`: tampil sebagai 1 baris status yang **di-replace** (bukan append).
+- Progress bar: pakai `stage.progress`.
+- `message.delta`: append ke bubble jawaban final.
+- `done`: stop spinner + lock UI untuk request_id itu.
+
+***

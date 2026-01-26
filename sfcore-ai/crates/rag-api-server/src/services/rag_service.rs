@@ -5,7 +5,7 @@ use crate::utils::error::ApiError;
 use anyhow::Result;
 use pgvector::Vector;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use crate::database::models::{DocumentMetadata, DocumentOverview};
 use crate::services::conversation::manager::{RetrievalProvider, RetrievalChunk};
 use std::collections::HashMap;
@@ -30,7 +30,7 @@ pub struct ContextMetrics {
     pub truncated: bool,
 }
 
-#[derive(Clone)] // Clone derives for Arc usage if needed, but RagService usually wrapped in Arc
+#[derive(Clone)]
 pub struct RagService {
     pub repository: Arc<Repository>,
     pub embedding_service: Arc<EmbeddingService>,
@@ -58,14 +58,29 @@ impl RagService {
         &self,
         user_id: i32,
         query: &str,
-        document_id: Option<i32>,
+        document_ids: Option<Vec<i32>>,
     ) -> Result<Vec<DocumentChunk>, ApiError> {
         info!("Retrieving context for user {} query: {}", user_id, query);
         
-        // Generate query embedding
-        let query_embedding = self.embedding_service.embed(query).await?;
+        // Generate query embedding with timeout
+        let embedding_future = self.embedding_service.embed(query);
         
-        self.retrieve_with_embedding(user_id, query, query_embedding, document_id).await
+        let query_embedding = match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            embedding_future
+        ).await {
+            Ok(Ok(emb)) => emb,
+            Ok(Err(e)) => {
+                warn!("Embedding generation failed: {}", e);
+                return Err(ApiError::EmbeddingError(e.to_string()));
+            }
+            Err(_) => {
+                warn!("Embedding generation timeout after 10s");
+                return Err(ApiError::EmbeddingError("Timeout".to_string()));
+            }
+        };
+        
+        self.retrieve_with_embedding(user_id, query, query_embedding, document_ids).await
     }
 
     /// Retrieve relevant chunks with pre-calculated embedding
@@ -74,114 +89,83 @@ impl RagService {
         user_id: i32,
         query_text: &str,
         query_embedding: Vec<f32>,
-        document_id: Option<i32>,
+        document_ids: Option<Vec<i32>>,
     ) -> Result<Vec<DocumentChunk>, ApiError> {
         info!("Retrieving context with embedding for user {}", user_id);
         
         let vector = Vector::from(query_embedding);
         
-        // Search dengan authorization
-        // Search dengan authorization
+        // Search with timeout protection
+ // Search with timeout protection
         let mut chunks = if self.config.rerank_enabled {
-            // Hybrid search (vector + full-text)
-            self.repository
-                .hybrid_search_user_documents(
-                    user_id,
-                    vector,
-                    query_text.to_string(),
-                    self.config.retrieval_top_k as i32,
-                    document_id,
-                )
-                .await
-                .map_err(|e| ApiError::DatabaseError(e.to_string()))?
+            // Hybrid search
+            let search_future = self.repository.hybrid_search_user_documents(
+                user_id,
+                vector.clone(),
+                query_text.to_string(),
+                self.config.retrieval_top_k as i32,
+                document_ids.clone(),
+            );
+            
+            match tokio::time::timeout(std::time::Duration::from_secs(15), search_future).await {
+                Ok(Ok(c)) => c,
+                Ok(Err(e)) => {
+                    warn!("Hybrid search failed: {}", e);
+                    return Err(ApiError::DatabaseError(e.to_string()));
+                }
+                Err(_) => {
+                    warn!("Hybrid search timeout after 15s");
+                    return Err(ApiError::DatabaseError("Search timeout".to_string()));
+                }
+            }
         } else {
             // Pure vector search
-            self.repository
-                .search_user_documents(
-                    user_id,
-                    vector,
-                    self.config.retrieval_top_k as i32,
-                    document_id,
-                )
-                .await
-                .map_err(|e| ApiError::DatabaseError(e.to_string()))?
-        };
-
-        // STRATEGY: "Introduction Context"
-        // If specific document is targeted, always try to fetch the first chunk (Intro/Summary)
-        // This solves the "What is this document about?" problem where vector query doesn't match content.
-        if let Some(doc_id) = document_id {
-            // Check if chunk 0 is already in results
-            let has_intro = chunks.iter().any(|c| c.chunk_index == 0);
+            let search_future = self.repository.search_user_documents(
+                user_id,
+                vector.clone(),
+                self.config.retrieval_top_k as i32,
+                document_ids.clone(),
+            );
             
-            if !has_intro {
-                match self.repository.get_first_chunk(doc_id).await {
-                    Ok(Some(intro_chunk)) => {
-                        debug!("Injecting intro chunk (index 0) for context robustness");
-                        // Prepend intro chunk
-                        chunks.insert(0, intro_chunk);
+            match tokio::time::timeout(std::time::Duration::from_secs(15), search_future).await {
+                Ok(Ok(c)) => c,
+                Ok(Err(e)) => {
+                    warn!("Vector search failed: {}", e);
+                    return Err(ApiError::DatabaseError(e.to_string()));
+                }
+                Err(_) => {
+                    warn!("Vector search timeout after 15s");
+                    return Err(ApiError::DatabaseError("Search timeout".to_string()));
+                }
+            }
+        };
+        
+        // STRATEGY: "Introduction Context"
+        // If specific document is targeted (singular), inject first chunk for overview
+        if let Some(ids) = &document_ids {
+            if ids.len() == 1 {
+                let doc_id = ids[0];
+                let has_intro = chunks.iter().any(|c| c.chunk_index == 0 && c.document_id == doc_id);
+                
+                if !has_intro {
+                    match self.repository.get_first_chunk(doc_id).await {
+                        Ok(Some(intro_chunk)) => {
+                            debug!("Injecting intro chunk (index 0) for doc {}", doc_id);
+                            chunks.insert(0, intro_chunk);
+                        }
+                        Ok(None) => debug!("No intro chunk found for doc {}", doc_id),
+                        Err(e) => warn!("Failed to fetch intro chunk: {}", e),
                     }
-                    Ok(None) => debug!("No intro chunk found for doc {}", doc_id),
-                    Err(e) => tracing::warn!("Failed to fetch intro chunk: {}", e),
                 }
             }
         }
         
-        debug!("Retrieved {} chunks", chunks.len());
+        debug!("Retrieved {} chunks for user {}", chunks.len(), user_id);
         
         Ok(chunks)
     }
     
-    /// Build context dari chunks
-    pub fn build_context(&self, chunks: Vec<DocumentChunk>) -> String {
-        if chunks.is_empty() {
-            return String::from("Tidak ada konteks yang relevan ditemukan.");
-        }
-        
-        let mut context = String::from("Konteks yang relevan:\n\n");
-        
-        for (i, chunk) in chunks.iter().enumerate() {
-            context.push_str(&format!(
-                "[Dokumen: {} | Halaman: {}]\n{}\n\n",
-                chunk.document_title,
-                chunk.page_number.unwrap_or(0),
-                chunk.content
-            ));
-            
-            // Limit total context length
-            if context.len() > self.config.max_context_length {
-                debug!(
-                    "Context truncated at {} chunks (max length: {})",
-                    i + 1,
-                    self.config.max_context_length
-                );
-                break;
-            }
-        }
-        
-        context
-    }
-    
-    /// Build prompt dengan RAG context (Legacy method using shared ChatMessage)
-    pub fn build_prompt(&self, user_query: &str, context: &str) -> Vec<crate::models::chat::ChatMessage> {
-        let system_message = crate::models::chat::ChatMessage {
-            role: "system".to_string(),
-            content: format!(
-                "Anda adalah asisten AI yang membantu menjawab pertanyaan berdasarkan dokumen yang diberikan. \
-                 Jawab pertanyaan dengan akurat berdasarkan konteks yang tersedia. \
-                 Jika informasi tidak ada dalam konteks, katakan dengan jelas.\n\n{}",
-                context
-            ),
-        };
-        
-        let user_message = crate::models::chat::ChatMessage {
-            role: "user".to_string(),
-            content: user_query.to_string(),
-        };
-        
-        vec![system_message, user_message]
-    }
-
+    /// Build STRUCTURED context dengan XML tags untuk multi-document clarity
     pub fn build_structured_context(
         &self,
         chunks: Vec<DocumentChunk>,
@@ -196,17 +180,17 @@ impl RagService {
         // Group chunks by document
         let grouped = self.group_chunks_by_document(chunks);
         
-        // Sort documents by relevance
+        // Sort documents by relevance (highest similarity first)
         let mut sorted_docs: Vec<GroupedDocument> = grouped.into_values().collect();
         sorted_docs.sort_by(|a, b| {
-            b.avg_similarity.partial_cmp(&a.avg_similarity).unwrap()
+            b.avg_similarity.partial_cmp(&a.avg_similarity).unwrap_or(std::cmp::Ordering::Equal)
         });
         
         // Build context with token-aware truncation
         self.format_grouped_context(sorted_docs)
     }
     
-/// Group chunks by document ID
+    /// Group chunks by document ID with similarity aggregation
     fn group_chunks_by_document(
         &self,
         chunks: Vec<DocumentChunk>,
@@ -223,26 +207,27 @@ impl RagService {
                     total_tokens: 0,
                 });
             
+            // Estimate tokens for this chunk
             entry.total_tokens += token_estimator::estimate_tokens(&chunk.content);
             entry.chunks.push(chunk);
         }
         
         // Calculate average similarity per document
         for doc in grouped.values_mut() {
-            let sum: f32 = doc.chunks.iter()
-                .filter_map(|c| Some(c.similarity))
-                .sum();
-            doc.avg_similarity = if doc.chunks.is_empty() {
-                0.0
+            if doc.chunks.is_empty() {
+                doc.avg_similarity = 0.0;
             } else {
-                sum / doc.chunks.len() as f32
-            };
+                let sum: f32 = doc.chunks.iter()
+                    .map(|c| c.similarity)
+                    .sum();
+                doc.avg_similarity = sum / doc.chunks.len() as f32;
+            }
         }
         
         grouped
     }
     
- /// Format grouped documents dengan XML structure
+    /// Format grouped documents dengan XML structure and token management
     fn format_grouped_context(
         &self,
         sorted_docs: Vec<GroupedDocument>,
@@ -254,7 +239,7 @@ impl RagService {
         let mut current_tokens = token_estimator::estimate_tokens(&context);
         
         for doc in sorted_docs {
-            // Document header
+            // Document header with metadata
             let doc_header = format!(
                 "<document id=\"doc_{}\" title=\"{}\" relevance=\"{:.3}\">\n",
                 doc.doc_id,
@@ -265,7 +250,7 @@ impl RagService {
             let header_tokens = token_estimator::estimate_tokens(&doc_header);
             
             // Check if we can fit this document
-            if current_tokens + header_tokens > max_tokens {
+            if token_estimator::would_exceed_limit(current_tokens, &doc_header, max_tokens) {
                 metrics.truncated = true;
                 debug!(
                     "Context truncated: {} tokens exceeds limit {}",
@@ -289,9 +274,7 @@ impl RagService {
                     chunk.content.trim()
                 );
                 
-                let chunk_tokens = token_estimator::estimate_tokens(&chunk_text);
-                
-                if current_tokens + chunk_tokens > max_tokens {
+                if token_estimator::would_exceed_limit(current_tokens, &chunk_text, max_tokens) {
                     metrics.truncated = true;
                     debug!(
                         "Chunk truncation at doc {} chunk {}",
@@ -301,7 +284,7 @@ impl RagService {
                 }
                 
                 context.push_str(&chunk_text);
-                current_tokens += chunk_tokens;
+                current_tokens += token_estimator::estimate_tokens(&chunk_text);
                 metrics.chunks_included += 1;
             }
             
@@ -324,10 +307,34 @@ impl RagService {
         );
         
         (context, metrics)
-    }    
+    }
+    
+    /// Build context dari chunks (Legacy method for backward compatibility)
+    pub fn build_context(&self, chunks: Vec<DocumentChunk>) -> String {
+        let (context, _metrics) = self.build_structured_context(chunks);
+        context
+    }
+    
+    /// Build prompt dengan RAG context (Legacy method)
+    pub fn build_prompt(&self, user_query: &str, context: &str) -> Vec<crate::models::chat::ChatMessage> {
+        let system_message = crate::models::chat::ChatMessage {
+            role: "system".to_string(),
+            content: format!(
+                "Anda adalah asisten AI yang membantu menjawab pertanyaan berdasarkan dokumen yang diberikan. \
+                 Jawab pertanyaan dengan akurat berdasarkan konteks yang tersedia. \
+                 Jika informasi tidak ada dalam konteks, katakan dengan jelas.\n\n{}",
+                context
+            ),
+        };
+        
+        let user_message = crate::models::chat::ChatMessage {
+            role: "user".to_string(),
+            content: user_query.to_string(),
+        };
+        
+        vec![system_message, user_message]
+    }
 }
-
-
 
 // Implement trait for ConversationManager
 #[async_trait::async_trait]
@@ -336,32 +343,36 @@ impl RetrievalProvider for RagService {
         &self,
         user_id: i64,
         embedding: &[f32],
+        query_text: &str,
         document_id: Option<i64>,
+        document_ids: Option<Vec<i64>>,
     ) -> Result<Vec<RetrievalChunk>> {
-        // We do *hybrid* search if we have a way to synthesize "query_text". 
-        // But the trait doesn't provide query text, only embedding.
-        // If we strictly follow trait signature from Fix, we only have embedding.
-        // So we must use `retrieve_with_embedding` but pass empty string for query_text if we want to fallback to pure vector?
-        // Or we should update trait to pass text?
-        // `ConversationManager::execute_retrieval_decision` computes embedding and calls search.
-        // It DOES NOT pass text to `search`.
-        // So we must rely on pure vector search if text is not available OR just pass "" if hybrid search tolerates it.
-        // If `config.rerank_enabled` is true, hybrid search uses text. If text is empty, fulltext might fail or match nothing.
-        // For now, assuming pure vector search is primarily used by memory system or I need to update trait in `manager.rs` to accept `query_text` if hybrid is must.
-        // `Fix-ProblemCircular.md` Step 9 implementation of `search` uses `embedding` to manually query DB. It constructs `embedding_str`.
-        // It does NOT use `repository`. It uses `PgPool` directly.
-        // My `RagService` uses `Repository`.
-        // I will attempt to use `repository.search_user_documents` (pure vector) which doesn't need text.
-        // `repository.hybrid_search` needs text.
-        // If config forces hybrid, we might have issue.
-        // I'll use `retrieve_with_embedding` with empty query_text and hope hybrid search handles optional text or just works on vector if text is empty.
-        // Or assume pure vector.
+        // Consolidate document_id and document_ids for retrieval
+        let mut final_doc_ids = Vec::new();
         
+        if let Some(ids) = document_ids {
+            final_doc_ids.extend(ids.into_iter().map(|id| id as i32));
+        }
+        
+        if let Some(single_id) = document_id {
+            let single_id_i32 = single_id as i32;
+            if !final_doc_ids.contains(&single_id_i32) {
+                final_doc_ids.push(single_id_i32);
+            }
+        }
+        
+        let doc_ids_option = if final_doc_ids.is_empty() {
+            None
+        } else {
+            Some(final_doc_ids)
+        };
+
+        // Use retrieve_with_embedding with ACTUAL query text (enables hybrid search)
         let chunks = self.retrieve_with_embedding(
             user_id as i32, 
-            "", // No text available in trait signature
+            query_text, 
             embedding.to_vec(), 
-            document_id.map(|id| id as i32)
+            doc_ids_option
         ).await;
 
         match chunks {
@@ -372,7 +383,10 @@ impl RetrievalProvider for RagService {
                 content: d.content,
                 similarity: d.similarity,
             }).collect()),
-            Err(e) => anyhow::bail!("Retrieval failed: {}", e),
+            Err(e) => {
+                warn!("Retrieval failed in RetrievalProvider::search: {}", e);
+                anyhow::bail!("Retrieval failed: {}", e)
+            }
         }
     }
 

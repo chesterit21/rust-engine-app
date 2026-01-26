@@ -47,7 +47,7 @@ Guidelines:
         &self,
         state: &ConversationState,
         current_message: &str,
-        current_document_id: Option<i64>,
+        current_document_ids: Option<Vec<i64>>,
         current_embedding: Option<&Vec<f32>>,
     ) -> Result<RetrievalDecision> {
         // 1. Analyze Intent (POC Meta-Question Enhancement)
@@ -79,13 +79,13 @@ Guidelines:
             });
         }
 
-        if state.document_id != current_document_id {
+        if state.document_ids != current_document_ids {
             info!(
-                "Document ID changed from {:?} to {:?}, need new retrieval",
-                state.document_id, current_document_id
+                "Document Context changed from {:?} to {:?}, need new retrieval",
+                state.document_ids, current_document_ids
             );
             return Ok(RetrievalDecision::Retrieve {
-                reason: RetrievalReason::DocumentIdChanged,
+                reason: RetrievalReason::DocumentContextChanged,
                 context_aware: true,
             });
         }
