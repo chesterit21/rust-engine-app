@@ -312,18 +312,33 @@ impl DocumentParser {
         
         let mut text = String::new();
         
-        for element in document.select(&body_selector) {
-            let html_text = element.html();
-            let doc = Html::parse_fragment(&html_text);
-            
-            // Remove scripts/styles
-            for _elem in doc.select(&script_selector) {
-                // Skip these elements
-                continue;
+        // If body selector yields nothing, try selecting everything (for fragments)
+        if document.select(&body_selector).next().is_none() {
+             let all_selector = Selector::parse("*").unwrap();
+             for element in document.select(&all_selector) {
+                // Skip if it's script/style
+                if element.value().name() == "script" || element.value().name() == "style" {
+                    continue;
+                }
+                // Only collect text nodes directly
+                if let Some(txt) = element.text().next() {
+                    text.push_str(txt);
+                    text.push(' ');
+                }
             }
-            
-            // Extract text
-            text.push_str(&element.text().collect::<String>());
+        } else {
+            for element in document.select(&body_selector) {
+                let html_text = element.html();
+                let doc = Html::parse_fragment(&html_text);
+                
+                // Remove scripts/styles
+                for _elem in doc.select(&script_selector) {
+                    continue;
+                }
+                
+                // Extract text
+                text.push_str(&element.text().collect::<String>());
+            }
         }
         
         // Cleanup: remove excessive whitespace

@@ -21,7 +21,7 @@ members = [
     # "sfcore-client-app/sso-server",
 
     # RAG Worker
-    "crates/rag-embedding-worker",
+    #"crates/rag-embedding-worker",
     
     # RAG API Server
     "crates/rag-api-server",

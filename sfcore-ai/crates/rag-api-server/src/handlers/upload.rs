@@ -11,10 +11,10 @@ use tracing::{error, info};
 
 #[derive(Debug, Serialize)]
 pub struct UploadResponse {
-    pub success: bool,
-    pub message: String,
-    pub document_id: Option<i32>,
-    pub chunks_created: usize,
+    #[serde(rename = "documentId")]
+    pub document_id: i32,
+    #[serde(rename = "documentName")]
+    pub document_name: String,
 }
 
 pub async fn upload_handler(
@@ -85,33 +85,41 @@ pub async fn upload_handler(
     let embedding_service = state.embedding_service.clone();
     let event_bus = state.event_bus.clone();
     let doc_service = crate::services::DocumentService::new(
-        repository,
+        repository.clone(),
         embedding_service,
         state.llm_service.clone(),
         &state.settings.rag,
     );
     
-    // Spawn background task
+    // 1. Create document record & save file (Sync)
+    let (doc_id, file_type, file_data) = match doc_service.create_initial_document(user_id, filename.clone(), file_data).await {
+        Ok(res) => res,
+        Err(e) => return Err(e),
+    };
+
+    // 2. Spawn background task for heavy processing
+    let filename_clone = filename.clone();
+    let repo_clone = repository.clone(); // Clone for error handling
     tokio::spawn(async move {
-        // 1. Notify start
+        // Notify start
         event_bus.publish(session_id, SystemEvent::ProcessingStarted { 
-            document_id: 0, // Not yet known
-            filename: filename.clone(),
+            document_id: doc_id,
+            filename: filename_clone.clone(),
         });
 
-        // 2. Process
+        // 3. Process Logic
         let eb_clone = event_bus.clone();
-        let on_progress = move |progress: f32, message: String, status_flag: String| {
+        let on_progress = move |d_id: i32, progress: f64, message: String, status_flag: String| {
             eb_clone.publish(session_id, SystemEvent::ProcessingProgress { 
-                document_id: 0, 
+                document_id: d_id, 
                 progress, 
                 message, 
                 status_flag 
             });
         };
 
-        match doc_service.process_upload(user_id, filename.clone(), file_data, on_progress).await {
-            Ok((doc_id, chunks_count)) => {
+        match doc_service.process_document_background(doc_id, file_type, file_data, on_progress).await {
+            Ok((_, chunks_count)) => {
                 info!("Background processing completed for doc {}", doc_id);
                 event_bus.publish(session_id, SystemEvent::ProcessingCompleted { 
                     document_id: doc_id, 
@@ -119,9 +127,12 @@ pub async fn upload_handler(
                 });
             }
             Err(e) => {
-                error!("Background processing failed for {}: {}", filename, e);
+                error!("Background processing failed for {}: {}", filename_clone, e);
+                // Update DB status to failed so it disappears from progress bar
+                let _ = repo_clone.upsert_document_processing_status(doc_id, "failed", 0.0, Some(e.to_string())).await;
+                
                 event_bus.publish(session_id, SystemEvent::ProcessingError { 
-                    document_id: 0, 
+                    document_id: doc_id, 
                     error: e.to_string() 
                 });
             }
@@ -129,9 +140,7 @@ pub async fn upload_handler(
     });
     
     Ok(Json(UploadResponse {
-        success: true,
-        message: "File received and is being processed in the background".to_string(),
-        document_id: None, // Will be provided via SSE once ready
-        chunks_created: 0,
+        document_id: doc_id,
+        document_name: filename,
     }))
 }

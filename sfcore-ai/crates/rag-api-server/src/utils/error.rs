@@ -39,13 +39,34 @@ struct ErrorResponse {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, error_type, message) = match self {
-            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "Unauthorized", msg),
-            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, "Forbidden", msg),
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "NotFound", msg),
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "BadRequest", msg),
-            ApiError::DatabaseError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "DatabaseError", msg),
-            ApiError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "InternalError", msg),
-            ApiError::LlmError(msg) => (StatusCode::SERVICE_UNAVAILABLE, "LlmError", msg),
+            ApiError::Unauthorized(msg) => {
+                tracing::warn!("Unauthorized: {}", msg);
+                (StatusCode::UNAUTHORIZED, "Unauthorized", msg)
+            },
+            ApiError::Forbidden(msg) => {
+                tracing::warn!("Forbidden: {}", msg);
+                (StatusCode::FORBIDDEN, "Forbidden", msg)
+            },
+            ApiError::NotFound(msg) => {
+                tracing::warn!("Not found: {}", msg);
+                (StatusCode::NOT_FOUND, "NotFound", msg)
+            },
+            ApiError::BadRequest(msg) => {
+                tracing::warn!("Bad request: {}", msg);
+                (StatusCode::BAD_REQUEST, "BadRequest", msg)
+            },
+            ApiError::DatabaseError(msg) => {
+                tracing::error!("Database error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "DatabaseError", msg)
+            },
+            ApiError::InternalError(msg) => {
+                tracing::error!("Internal error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "InternalError", msg)
+            },
+            ApiError::LlmError(msg) => {
+                tracing::error!("LLM error: {}", msg);
+                (StatusCode::SERVICE_UNAVAILABLE, "LlmError", msg)
+            },
         };
         
         let body = Json(ErrorResponse {

@@ -55,7 +55,7 @@ pub struct ChatSession {
 pub struct DocumentProcessingStatus {
     pub document_id: i32,
     pub status: String,
-    pub progress: f32,
+    pub progress: f64,
     pub message: Option<String>,
     pub updated_at: DateTime<Utc>,
 }
@@ -78,4 +78,24 @@ pub struct DocumentMetadata {
 pub struct DocumentOverview {
     pub metadata: DocumentMetadata,
     pub first_chunks: Vec<DocumentChunk>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct Category {
+    #[sqlx(rename = "Id")]
+    pub id: i32,
+    #[sqlx(rename = "CategoryName")]
+    pub category_name: String,
+    #[sqlx(rename = "CategoryDesc")]
+    pub category_desc: Option<String>,
+    #[sqlx(rename = "Owner")]
+    pub owner: i32,
+    #[sqlx(rename = "ParentId")]
+    pub parent_id: Option<i32>,
+    #[sqlx(rename = "IsNeedApproval")]
+    pub is_need_approval: bool,
+    #[sqlx(rename = "IsActive")]
+    pub is_active: bool,
+    #[sqlx(rename = "IsDeleted")]
+    pub is_deleted: bool,
 }

@@ -64,6 +64,7 @@ pub struct RagConfig {
     pub chunk_overlap_percentage: f32,
     pub rerank_enabled: bool,
     pub max_context_length: usize,
+    pub document_path: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

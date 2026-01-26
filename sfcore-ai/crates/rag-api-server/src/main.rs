@@ -240,5 +240,6 @@ fn build_router(app_state: Arc<AppState>) -> Router {
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::default().include_headers(true)),
         )
+        .layer(tower_http::catch_panic::CatchPanicLayer::new())
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
 }

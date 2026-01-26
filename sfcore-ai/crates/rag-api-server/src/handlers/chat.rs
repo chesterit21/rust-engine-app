@@ -22,10 +22,7 @@ pub async fn chat_stream_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ChatRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (axum::http::StatusCode, String)> {
-    debug!(
-        "Chat stream request: session_id={}, user_id={}, document_id={:?}",
-        req.session_id, req.user_id, req.document_id
-    );
+    info!(?req, "Incoming chat request");
 
     // Validate request
     if req.message.trim().is_empty() {

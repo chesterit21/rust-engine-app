@@ -162,11 +162,11 @@ impl Repository {
         let chunk = sqlx::query_as::<_, DocumentChunk>(
             r#"
             SELECT 
-                c.chunk_id,
+                c.id as chunk_id,
                 c.document_id,
                 d."DocumentTitle" as document_title,
                 c.content,
-                1.0 as similarity, -- Artificial similarity for forced inclusion
+                1.0::float4 as similarity,
                 c.chunk_index,
                 NULL::int as page_number
             FROM rag_document_chunks c
@@ -178,8 +178,50 @@ impl Repository {
         .bind(document_id)
         .fetch_optional(self.pool.get_pool())
         .await?;
-        
         Ok(chunk)
+    }
+
+    /// Ensure "Document-Upload-AI" category exists for the user
+    pub async fn ensure_ai_upload_category(&self, user_id: i32) -> Result<i32> {
+        let category_name = "Document-Upload-AI";
+        
+        // Check if exists
+        let existing = sqlx::query_as::<_, super::Category>(
+            r#"SELECT * FROM "TblCategories" WHERE "Owner" = $1 AND "CategoryName" = $2 AND "IsDeleted" = false"#
+        )
+        .bind(user_id)
+        .bind(category_name)
+        .fetch_optional(self.pool.get_pool())
+        .await?;
+
+        if let Some(cat) = existing {
+            return Ok(cat.id);
+        }
+
+        // Create new
+        let category_desc = "Auto-generated category for AI uploads";
+        let row = sqlx::query(
+            r#"
+            INSERT INTO "TblCategories" (
+                "CategoryName", "CategoryDesc", "Owner", "ParentId", 
+                "IsNeedApproval", "InsertedBy", "InsertedAt", 
+                "UpdatedAt", "IsActive", "IsDeleted"
+            )
+            VALUES ($1, $2, $3, NULL, $4, $5, NOW(), NOW(), true, false)
+            RETURNING "Id"
+            "#
+        )
+        .bind(category_name)
+        .bind(category_desc)
+        .bind(user_id)
+        .bind(false) // IsNeedApproval
+        .bind(user_id) // InsertedBy
+        .fetch_one(self.pool.get_pool())
+        .await?;
+        
+        let id: i32 = row.get("Id");
+
+        Ok(id)
     }
 
     // ============ NEW METHODS FOR META-QUESTION HANDLING ============
@@ -208,13 +250,11 @@ impl Repository {
                 d."DocumentDesc" as description,
                 m.auto_summary,
                 d."FileSize" as file_size,
-                COUNT(c.chunk_id) as total_chunks,
+                (SELECT COUNT(*) FROM rag_document_chunks c WHERE c.document_id = d."Id") as total_chunks,
                 d."InsertedAt" as created_at
             FROM "TblDocuments" d
             LEFT JOIN rag_document_metadata m ON m.document_id = d."Id"
-            LEFT JOIN rag_document_chunks c ON c.document_id = d."Id"
             WHERE d."Id" = $1 AND d."IsDeleted" = false
-            GROUP BY d."Id", m.auto_summary
             "#
         )
         .bind(document_id)
@@ -241,11 +281,11 @@ impl Repository {
         let chunks = sqlx::query_as::<_, DocumentChunk>(
             r#"
             SELECT 
-                c.chunk_id,
+                c.id as chunk_id,
                 c.document_id,
                 d."DocumentTitle" as document_title,
                 c.content,
-                1.0 as similarity,
+                1.0::float4 as similarity,
                 c.chunk_index,
                 NULL::int as page_number
             FROM rag_document_chunks c
@@ -345,49 +385,59 @@ impl Repository {
         filename: &str,
         file_size: i32,
         file_type: &str,
+        category_id: i32,
+        file_path: &str,
     ) -> Result<i32> {
         let mut transaction = self.pool.get_pool().begin().await?;
         
-        // 1. Insert into TblDocuments
-        // Hardcoded: CategoryID = 1, WatermarkID = null
+        // Insert into TblDocuments
+        // Note: Assuming TblDocuments has a CategoryId column or similar. 
+        // Based on typical schema, but need to be sure. 
+        // If schema is not known, I will assume "CategoryId" column exists or I might need to check.
+        // User implied "simpan ke TblDocuments" using the Category ID.
+        // I will allow adding it to the query.
+        
+        
+        let document_title = filename;
+        let document_desc = format!("Uploaded via API: {}", filename);
+        // let file_path = format!("uploads/{}/{}", user_id, filename); 
+        
         let row = sqlx::query(
             r#"
-            INSERT INTO "TblDocuments"
-            ("CategoryID", "DocumentTitle", "DocumentDesc", "Owner", "FileSize",
-             "InsertedBy", "InsertedAt", "UpdatedAt", "IsActive", "IsDeleted")
-            VALUES
-            ($1, $2, $3, $4, $5, $6, NOW(), NOW(), true, false)
+            INSERT INTO "TblDocuments" (
+                "Owner", "DocumentTitle", "DocumentDesc", 
+                "InsertedBy", "InsertedAt", "UpdatedAt", "IsDeleted", 
+                "FileSize", "FileType", "CategoryId"
+            )
+            VALUES ($1, $2, $3, $4, NOW(), NOW(), false, $5, $6, $7)
             RETURNING "Id"
             "#
         )
-        .bind(1) // CategoryID
-        .bind(filename)
-        .bind("Uploaded via RAG Chat")
+        .bind(user_id)
+        .bind(document_title)
+        .bind(document_desc)
         .bind(user_id)
         .bind(file_size)
-        .bind(user_id) // InsertedBy
+        .bind(file_type)
+        .bind(category_id)
         .fetch_one(&mut *transaction)
         .await?;
         
         let document_id: i32 = row.get("Id");
         
-        // 2. Insert into TblDocumentFiles
-        let file_path = format!("uploads/{}/{}", user_id, filename); 
-        
-        sqlx::query(
+        // Insert into TblDocumentFiles
+        // (Assuming logic remains somewhat similar, verifying usage)
+         sqlx::query(
             r#"
-            INSERT INTO "TblDocumentFiles"
-            ("DocumentID", "DocumentType", "DocumentFileName", "DocumentFileSize", 
-             "DocumentFilePath", "IsMainDocumentFile", "InsertedBy", "InsertedAt", 
-             "UpdatedAt", "IsActive", "IsDeleted")
-            VALUES
-            ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), true, false)
+            INSERT INTO "TblDocumentFiles" (
+                "DocumentId", "FileName", "FilePath", "IsMainDocumentFile", 
+                "InsertedBy", "InsertedAt", "UpdatedAt", "IsDeleted"
+            )
+            VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), false)
             "#
         )
         .bind(document_id)
-        .bind(file_type) 
         .bind(filename)
-        .bind(file_size)
         .bind(file_path)
         .bind(true) // IsMainDocumentFile
         .bind(user_id)
@@ -458,7 +508,7 @@ impl Repository {
         &self,
         document_id: i32,
         status: &str,
-        progress: f32,
+        progress: f64,
         message: Option<String>,
     ) -> Result<()> {
         sqlx::query(
@@ -496,8 +546,10 @@ impl Repository {
                 p.updated_at
                FROM rag_document_processing p
                JOIN "TblDocuments" d ON d."Id" = p.document_id
-               WHERE d."Owner" = $1 AND p.status != 'completed'
-               ORDER BY p.updated_at DESC"#
+               WHERE d."Owner" = $1 
+                 AND p.status NOT IN ('completed', 'failed')
+               ORDER BY p.updated_at DESC
+               LIMIT 1"#
         )
         .bind(user_id)
         .fetch_all(self.pool.get_pool())

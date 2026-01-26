@@ -7,7 +7,7 @@ use tracing::warn;
 #[serde(rename_all = "snake_case")]
 pub enum SystemEvent {
     ProcessingStarted { document_id: i32, filename: String },
-    ProcessingProgress { document_id: i32, progress: f32, message: String, status_flag: String },
+    ProcessingProgress { document_id: i32, progress: f64, message: String, status_flag: String },
     ProcessingCompleted { document_id: i32, chunks_count: usize },
     ProcessingError { document_id: i32, error: String },
 }
