@@ -791,6 +791,8 @@ impl ConversationManager {
             // Update document scope if changed
             if state.document_ids != document_ids {
                  state.document_ids = document_ids;
+                 // Persist the change to cache!
+                 self.cache.set(session_id, state.clone());
             }
             return Ok(state);
         }

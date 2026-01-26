@@ -1,24 +1,26 @@
 use axum::{
-    extract::State,
-    response::sse::{Event, KeepAlive, Sse},
-    Json,
+    extract::{State, Json},
+    response::{IntoResponse, sse::{Event, KeepAlive, Sse}},
 };
+use tracing::{info, warn, error, debug};
+use std::sync::Arc;
+use tokio::sync::Mutex; 
+use chrono::Utc;
+use serde_json::json;
 use futures::stream::{self, Stream};
 use std::convert::Infallible;
-use std::sync::Arc;
-use tracing::{debug, error, info};
 
-use crate::handlers::search::DocumentInfo;
-use crate::models::chat::ChatRequest;
+use crate::models::chat::{ChatRequest, ChatResponse, StreamEvent, NewSessionRequest, NewSessionResponse, SourceInfo};
 use crate::services::conversation::ConversationManager;
 use crate::services::event_bus::{SessionEvent, SystemEvent};
-use crate::state::AppState;
+use crate::handlers::search::DocumentInfo;
 use crate::utils::error::ApiError;
+use crate::state::AppState;
+use crate::logging::{ActivityLog, ActivityType, ActivityStatus};
 use axum::extract::Query;
 
 /// Handle streaming chat request
 /// POST /api/chat/stream
-use chrono::Utc;
 use crate::services::conversation::manager::ChatStreamChunk;
 
 pub async fn chat_stream_handler(
@@ -47,17 +49,17 @@ pub async fn chat_stream_handler(
     let request_id = format!("{}-{}-{}", session_id, user_id, Utc::now().timestamp_millis());
     
     // Create SSE stream
-    let stream = async_stream::stream! {
+    let response_stream = async_stream::stream! {
         // Execute manager logic which now returns a Stream
         match conversation_manager
             .handle_message(session_id, user_id, message, document_id, document_ids, request_id.clone())
             .await
         {
-            Ok(mut response_stream) => {
+            Ok(mut logic_stream) => {
                 use futures::StreamExt;
                 
                 // Forward chunks as they arrive
-                while let Some(chunk_res) = response_stream.next().await {
+                while let Some(chunk_res) = logic_stream.next().await {
                     match chunk_res {
                         Ok(chunk) => match chunk {
                             ChatStreamChunk::Stage { request_id, phase, progress, text, detail } => {
@@ -112,19 +114,7 @@ pub async fn chat_stream_handler(
         }
     };
 
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
-}
-
-/// Generate new session ID for user
-/// POST /api/chat/session/new
-#[derive(serde::Deserialize)]
-pub struct NewSessionRequest {
-    pub user_id: i64,
-}
-
-#[derive(serde::Serialize)]
-pub struct NewSessionResponse {
-    pub session_id: i64,
+    Ok(Sse::new(response_stream).keep_alive(KeepAlive::default()))
 }
 
 pub async fn new_session_handler(
@@ -274,7 +264,7 @@ pub async fn events_handler(
     let session_id = params.session_id;
     let rx = state.event_bus.subscribe();
 
-    let stream = stream::unfold(rx, move |mut rx| async move {
+    let sse_stream = stream::unfold(rx, move |mut rx: tokio::sync::broadcast::Receiver<SessionEvent>| async move {
         loop {
             match rx.recv().await {
                 Ok(session_event) => {
@@ -298,5 +288,5 @@ pub async fn events_handler(
         }
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(sse_stream).keep_alive(KeepAlive::default())
 }
