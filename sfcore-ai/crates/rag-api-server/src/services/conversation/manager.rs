@@ -416,6 +416,18 @@ impl ConversationManager {
                     .build(),
             );
 
+            // === FAIL FAST CHECK: Require Document Selection ===
+            if effective_doc_ids.is_none() && (planner_intent == PlannerIntent::Metadata || planner_intent == PlannerIntent::Vector) {
+                 warn!("No documents selected for Document Query");
+                 yield ConversationManager::stage_event(&request_id, "finalize", 100, Some("Dokumen belum dipilih.".to_string()));
+                 yield ChatStreamChunk::Message { 
+                     request_id: request_id.clone(), 
+                     delta: "Silakan pilih atau upload dokumen terlebih dahulu agar saya dapat menjawab pertanyaan Anda berdasarkan konteks dokumen.".to_string() 
+                 };
+                 yield ChatStreamChunk::Done { request_id: request_id.clone() };
+                 return Ok(Box::pin(stream));
+            }
+
             // === EMBEDDING (Only if not metadata) ===
             let mut query_embedding: Option<Vec<f32>> = None;
 
@@ -499,7 +511,7 @@ impl ConversationManager {
                     &message,
                     effective_doc_ids.clone(),
                     emb_slice,
-                    &tried_chunk_ids,
+                    &mut tried_chunk_ids,
                 ).await?;
 
                 let retrieval_duration = retrieval_start.elapsed().as_millis() as i32;
@@ -666,7 +678,7 @@ impl ConversationManager {
         current_message: &str,
         document_ids: Option<Vec<i64>>,
         current_embedding: &[f32],
-        tried_chunk_ids: &HashSet<i64>,
+        tried_chunk_ids: &mut HashSet<i64>,
     ) -> Result<(String, ContextMetrics)> {
         match decision {
             RetrievalDecision::Skip { reason } => {
@@ -713,6 +725,7 @@ impl ConversationManager {
                 }
 
                 let doc_chunks: Vec<crate::database::DocumentChunk> = chunks.iter().map(|c| {
+                    tried_chunk_ids.insert(c.chunk_id); // Record usage
                     crate::database::DocumentChunk {
                         chunk_id: c.chunk_id,
                         document_id: c.document_id as i32,

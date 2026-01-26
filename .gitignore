@@ -17,3 +17,4 @@ sfcore-ai/models/
 
 # OS
 .DS_Store
+sfcore-ai/crates/rag-api-server/docs/Helpers/oprimzie-strict.md

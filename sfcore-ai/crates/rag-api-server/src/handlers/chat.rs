@@ -1,12 +1,10 @@
 use axum::{
     extract::{State, Json},
-    response::{IntoResponse, sse::{Event, KeepAlive, Sse}},
+    response::sse::{Event, KeepAlive, Sse},
 };
-use tracing::{info, warn, error, debug};
+use tracing::{info, error};
 use std::sync::Arc;
-use tokio::sync::Mutex; 
 use chrono::Utc;
-use serde_json::json;
 use futures::stream::{self, Stream};
 use std::convert::Infallible;
 
