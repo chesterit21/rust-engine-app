@@ -23,3 +23,4 @@ pub use types::{
 
 // Re-export common types for convenience if needed, but ChatMessage/SessionId are in models
 pub use crate::models::chat::{ChatMessage, SessionId};
+pub mod verification;

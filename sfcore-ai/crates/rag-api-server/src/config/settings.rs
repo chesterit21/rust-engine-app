@@ -63,9 +63,11 @@ pub struct RagConfig {
     pub chunk_size: usize,
     pub chunk_overlap_percentage: f32,
     pub rerank_enabled: bool,
-    pub max_context_length: usize,
+    pub max_context_length: usize,  // Keep for backward compat
+    pub max_context_tokens: usize,  // NEW: token-based limit
     pub document_path: String,
 }
+
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PromptsConfig {

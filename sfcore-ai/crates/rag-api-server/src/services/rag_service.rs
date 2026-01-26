@@ -8,6 +8,27 @@ use std::sync::Arc;
 use tracing::{debug, info};
 use crate::database::models::{DocumentMetadata, DocumentOverview};
 use crate::services::conversation::manager::{RetrievalProvider, RetrievalChunk};
+use std::collections::HashMap;
+use crate::utils::token_estimator;
+
+/// Grouped chunks by document with metadata
+#[derive(Debug, Clone)]
+pub struct GroupedDocument {
+    pub doc_id: i32,
+    pub doc_title: String,
+    pub chunks: Vec<DocumentChunk>,
+    pub avg_similarity: f32,
+    pub total_tokens: usize,
+}
+
+/// Context building metrics
+#[derive(Debug, Default, Clone)]
+pub struct ContextMetrics {
+    pub total_tokens: usize,
+    pub documents_included: usize,
+    pub chunks_included: usize,
+    pub truncated: bool,
+}
 
 #[derive(Clone)] // Clone derives for Arc usage if needed, but RagService usually wrapped in Arc
 pub struct RagService {
@@ -160,7 +181,153 @@ impl RagService {
         
         vec![system_message, user_message]
     }
+
+    pub fn build_structured_context(
+        &self,
+        chunks: Vec<DocumentChunk>,
+    ) -> (String, ContextMetrics) {
+        if chunks.is_empty() {
+            return (
+                "Tidak ada konteks yang relevan ditemukan.".to_string(),
+                ContextMetrics::default(),
+            );
+        }
+        
+        // Group chunks by document
+        let grouped = self.group_chunks_by_document(chunks);
+        
+        // Sort documents by relevance
+        let mut sorted_docs: Vec<GroupedDocument> = grouped.into_values().collect();
+        sorted_docs.sort_by(|a, b| {
+            b.avg_similarity.partial_cmp(&a.avg_similarity).unwrap()
+        });
+        
+        // Build context with token-aware truncation
+        self.format_grouped_context(sorted_docs)
+    }
+    
+/// Group chunks by document ID
+    fn group_chunks_by_document(
+        &self,
+        chunks: Vec<DocumentChunk>,
+    ) -> HashMap<i32, GroupedDocument> {
+        let mut grouped: HashMap<i32, GroupedDocument> = HashMap::new();
+        
+        for chunk in chunks {
+            let entry = grouped.entry(chunk.document_id)
+                .or_insert_with(|| GroupedDocument {
+                    doc_id: chunk.document_id,
+                    doc_title: chunk.document_title.clone(),
+                    chunks: Vec::new(),
+                    avg_similarity: 0.0,
+                    total_tokens: 0,
+                });
+            
+            entry.total_tokens += token_estimator::estimate_tokens(&chunk.content);
+            entry.chunks.push(chunk);
+        }
+        
+        // Calculate average similarity per document
+        for doc in grouped.values_mut() {
+            let sum: f32 = doc.chunks.iter()
+                .filter_map(|c| Some(c.similarity))
+                .sum();
+            doc.avg_similarity = if doc.chunks.is_empty() {
+                0.0
+            } else {
+                sum / doc.chunks.len() as f32
+            };
+        }
+        
+        grouped
+    }
+    
+ /// Format grouped documents dengan XML structure
+    fn format_grouped_context(
+        &self,
+        sorted_docs: Vec<GroupedDocument>,
+    ) -> (String, ContextMetrics) {
+        let max_tokens = self.config.max_context_tokens;
+        
+        let mut context = String::from("DOKUMEN YANG TERSEDIA:\n\n");
+        let mut metrics = ContextMetrics::default();
+        let mut current_tokens = token_estimator::estimate_tokens(&context);
+        
+        for doc in sorted_docs {
+            // Document header
+            let doc_header = format!(
+                "<document id=\"doc_{}\" title=\"{}\" relevance=\"{:.3}\">\n",
+                doc.doc_id,
+                doc.doc_title,
+                doc.avg_similarity
+            );
+            
+            let header_tokens = token_estimator::estimate_tokens(&doc_header);
+            
+            // Check if we can fit this document
+            if current_tokens + header_tokens > max_tokens {
+                metrics.truncated = true;
+                debug!(
+                    "Context truncated: {} tokens exceeds limit {}",
+                    current_tokens + header_tokens,
+                    max_tokens
+                );
+                break;
+            }
+            
+            context.push_str(&doc_header);
+            current_tokens += header_tokens;
+            metrics.documents_included += 1;
+            
+            // Add chunks for this document
+            for chunk in &doc.chunks {
+                let chunk_text = format!(
+                    "<chunk id=\"chunk_{}\" page=\"{}\" similarity=\"{:.3}\">\n{}\n</chunk>\n\n",
+                    chunk.chunk_id,
+                    chunk.page_number.unwrap_or(0),
+                    chunk.similarity,
+                    chunk.content.trim()
+                );
+                
+                let chunk_tokens = token_estimator::estimate_tokens(&chunk_text);
+                
+                if current_tokens + chunk_tokens > max_tokens {
+                    metrics.truncated = true;
+                    debug!(
+                        "Chunk truncation at doc {} chunk {}",
+                        doc.doc_id, chunk.chunk_id
+                    );
+                    break;
+                }
+                
+                context.push_str(&chunk_text);
+                current_tokens += chunk_tokens;
+                metrics.chunks_included += 1;
+            }
+            
+            context.push_str("</document>\n\n");
+            current_tokens += 2;
+            
+            if metrics.truncated {
+                break;
+            }
+        }
+        
+        metrics.total_tokens = current_tokens;
+        
+        info!(
+            "Built structured context: {} tokens, {} docs, {} chunks{}",
+            metrics.total_tokens,
+            metrics.documents_included,
+            metrics.chunks_included,
+            if metrics.truncated { " (TRUNCATED)" } else { "" }
+        );
+        
+        (context, metrics)
+    }    
 }
+
+
 
 // Implement trait for ConversationManager
 #[async_trait::async_trait]

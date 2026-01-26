@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
+use std::collections::HashMap;
+use serde_json::Value;
 
 /// Activity type categories
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +98,9 @@ pub struct ActivityLog {
     
     // Timestamp
     pub created_at: DateTime<Utc>,
+
+    // Custom fields
+    pub custom_fields: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 impl ActivityLog {
@@ -108,6 +113,7 @@ impl ActivityLog {
 /// Builder pattern for ActivityLog
 pub struct ActivityLogBuilder {
     log: ActivityLog,
+    custom_fields: Option<std::collections::HashMap<String, serde_json::Value>>, // ADD THIS
 }
 
 impl ActivityLogBuilder {
@@ -132,7 +138,9 @@ impl ActivityLogBuilder {
                 user_agent: None,
                 ip_address: None,
                 created_at: Utc::now(),
+                custom_fields: None,
             },
+            custom_fields: None,  // ADD THIS LINE
         }
     }
 
@@ -206,4 +214,18 @@ impl ActivityLogBuilder {
     pub fn build(self) -> ActivityLog {
         self.log
     }
+
+    /// Add custom key-value data (encode in message for now)
+    pub fn custom(mut self, key: &str, value: impl Into<Value>) -> Self {
+        if self.custom_fields.is_none() {
+            self.custom_fields = Some(HashMap::new());
+        }
+        
+        if let Some(ref mut fields) = self.custom_fields {
+            fields.insert(key.to_string(), value.into());
+        }
+        
+        self
+    }
+
 }

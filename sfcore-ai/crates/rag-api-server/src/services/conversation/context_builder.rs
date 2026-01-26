@@ -22,7 +22,10 @@ impl ContextBuilder {
             weighted_config: WeightedEmbeddingConfig::default(),
         }
     }
-
+    pub fn base_instruction(&self) -> &str {
+        &self.base_instruction
+    }
+    
     pub fn default_base_instruction() -> String {
         r#"You are an intelligent AI assistant for a Document Management System.
 

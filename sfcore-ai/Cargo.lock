@@ -2598,6 +2598,7 @@ dependencies = [
  "pulldown-cmark",
  "quick-xml 0.36.2",
  "rand",
+ "regex",
  "reqwest",
  "rtf-parser",
  "scraper",
