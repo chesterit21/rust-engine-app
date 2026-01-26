@@ -23,6 +23,7 @@ pub struct AppState {
     pub ip_whitelist: Arc<IpWhitelist>,
     pub header_validator: Arc<CustomHeaderValidator>,
     pub event_bus: Arc<EventBus>,
+    pub limiters: Arc<crate::utils::limiters::Limiters>, // NEW
 }
 
 impl FromRef<AppState> for Arc<ConversationManager> {

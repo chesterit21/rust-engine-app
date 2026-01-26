@@ -1,95 +1,49 @@
 [server]
 host = "0.0.0.0"
-port = 8000
+port = 3000
 max_connections = 1000
 
 [security]
-allowed_ips = [
-    "0.0.0.0/0",
-    "::/0",
-    "192.168.155.156",
-    "192.168.155.0/24",
-    "127.0.0.1",
-    "::1"
-]
+allowed_ips = ["127.0.0.1", "::1"]
 
 [security.custom_headers]
-app_id = "DMS-CLIENT-APP-2026"
-api_key = "SHUBA-APP-DMS-RAG"
-request_signature = "enabled"
-timestamp_tolerance = 31536000
+app_id = "X-App-ID"
+api_key = "X-Api-Key"
+request_signature = "X-Request-Signature"
+timestamp_tolerance = 300
 
 [database]
-url = "postgresql://postgres:P%40ssw0rd@localhost:6432/dms_demo?sslmode=disable"
+url = "postgres://postgres:postgres@localhost:5432/rag_db"
 pool_max_size = 20
 pool_timeout_seconds = 30
 
 [embedding]
-model = "Qwen3-Embedding"
-base_url = "http://127.0.0.1:8081"
-dimension = 1024
+model = "text-embedding-3-small"
+base_url = "https://api.openai.com/v1"
+dimension = 1536
 
 [llm]
-base_url = "http://127.0.0.1:8080"
+base_url = "https://api.openai.com/v1"
 timeout_seconds = 300
-max_tokens = 8048
+max_tokens = 2000
 stream_response = true
 
 [rag]
-retrieval_top_k = 10
-chunk_size = 1500
+retrieval_top_k = 5
+chunk_size = 512
 chunk_overlap_percentage = 0.1
-rerank_enabled = true  # CHANGED: Enable hybrid search
-max_context_length = 80000
-max_context_tokens = 20000  # NEW: Reserve 12K for system+response from 32K total
-document_path = "C:\\DMS\\uploads\\"
-
-[conversation]
-session_expiration_seconds = 21600
-token_soft_limit = 20000
-token_hard_limit = 23000
-model_max_tokens = 32000
-max_message_pairs = 5
-similarity_threshold = 0.75
-current_message_weight = 0.7
-history_weight = 0.3
-max_history_for_context = 5
-max_ram_usage_percent = 90.0
+rerank_enabled = false
+max_context_length = 8192
+max_context_tokens = 20000
+document_path = "/home/sfcore/sfcore-dms-docs"
 
 [prompts]
-main_system_prompt = """
-You are an intelligent AI assistant for a Document Management System.
+main_system_prompt = "You are a helpful assistant."
+context_extraction_system_prompt = "Context: {{CHUNKS}}"
 
-Your role is to help users understand and work with their documents by:
-- Answering questions based on the provided document context
-- Providing accurate information from the retrieved documents
-- Being concise and helpful in your responses
-- Admitting when information is not available in the context
-
-Guidelines:
-- Always base your answers on the provided document context
-- If the context doesn't contain relevant information, say so clearly
-- Cite document sources when possible
-- Be conversational but professional
-- Keep responses focused and relevant to the user's question
-
-IMPORTANT:
-At the end of your response, you MUST list the document titles you used as references.
-Format:
-References:
-- [Document Title]
-"""
-
-context_extraction_system_prompt = """
-You are a context extraction assistant.
-Your task is to extract and summarize information relevant to the user's query from the following provided document chunks.
-
-Document Context:
-{{CHUNKS}}
-
-Instructions:
-- Analyze the user's query (which will be in the next message).
-- Extract ALL information from the chunks above that helps answer the query.
-- Synthesize it into a clear, concise summary.
-- If the chunks contain no relevant information, state that clearly.
-"""
+[limits]
+embedding_concurrency = 8
+db_search_concurrency = 20
+llm_generate_concurrency = 4
+llm_stream_concurrency = 2
+acquire_timeout_ms = 15000

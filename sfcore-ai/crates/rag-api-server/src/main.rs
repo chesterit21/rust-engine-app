@@ -86,15 +86,21 @@ async fn main() -> Result<()> {
     );
     info!("✅ Activity logger initialized");
     
+    // Initialize Limiters
+    let limiters = Arc::new(utils::limiters::Limiters::new(&settings.limits));
+    info!("✅ Global concurrency limiters initialized");
+
     // Initialize services
     let embedding_service = Arc::new(EmbeddingService::new(
         settings.embedding.base_url.clone(),
         settings.embedding.clone(),
+        limiters.clone(),
     ));
 
     let llm_service = Arc::new(LlmService::new(
         settings.llm.clone(),
         settings.prompts.context_extraction_system_prompt.clone(),
+        limiters.clone(),
     ));
 
     let document_service = Arc::new(DocumentService::new(
@@ -109,6 +115,7 @@ async fn main() -> Result<()> {
         embedding_service.clone(),
         llm_service.clone(),
         settings.rag.clone(),
+        limiters.clone(),
     ));
     
     // Initialize conversation manager
@@ -148,6 +155,18 @@ async fn main() -> Result<()> {
     // Build application state
     let app_state = AppState {
         db_pool: db_pool.clone(),
+        embedding_service: embedding_service.clone(),
+        rag_service: rag_service.clone(),
+        llm_service: llm_service.clone(),
+        conversation_manager,
+        settings,
+        document_service,
+        document_auth,
+        ip_whitelist,
+        header_validator,
+        event_bus,
+        limiters, // NEW
+    };
         embedding_service: embedding_service.clone(),
         rag_service: rag_service.clone(),
         llm_service: llm_service.clone(),

@@ -28,6 +28,9 @@ struct EmbeddingData {
     embedding: Vec<f32>,
 }
 
+use crate::utils::limiters::Limiters;
+use std::time::Instant;
+
 #[derive(Clone)] // Clone derives needed for Arc usage
 pub struct EmbeddingService {
     client: Client,
@@ -35,10 +38,11 @@ pub struct EmbeddingService {
     dimension: usize,
     model_name: String,
     cache: Arc<RwLock<HashMap<String, Vec<f32>>>>, // Cache embeddings
+    limiters: Arc<Limiters>, // NEW
 }
 
 impl EmbeddingService {
-    pub fn new(llm_base_url: String, config: EmbeddingConfig) -> Self {
+    pub fn new(llm_base_url: String, config: EmbeddingConfig, limiters: Arc<Limiters>) -> Self {
         Self {
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(60))
@@ -48,6 +52,7 @@ impl EmbeddingService {
             dimension: config.dimension,
             model_name: config.model,
             cache: Arc::new(RwLock::new(HashMap::new())),
+            limiters, // NEW
         }
     }
     
@@ -67,6 +72,18 @@ impl EmbeddingService {
             }
         }
 
+        // 2. Limiter acquire (only on cache MISS)
+        let (_permit, wait) = Limiters::acquire_timed(
+            self.limiters.embedding.clone(),
+            self.limiters.acquire_timeout,
+            "embedding",
+        )
+        .await?;
+
+        debug!(wait_ms = wait.as_millis() as u64, op = "embedding", "wait_queue");
+
+        let exec_start = Instant::now();
+
         debug!("Generating embedding for {} chars using model {}", text.len(), self.model_name);
         
         let request = EmbeddingRequest {
@@ -83,7 +100,9 @@ impl EmbeddingService {
             .send()
             .await
             .context("Failed to connect to embedding server")?;
-        
+         
+        debug!(exec_ms = exec_start.elapsed().as_millis() as u64, op = "embedding", "exec");
+   
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
@@ -114,7 +133,7 @@ impl EmbeddingService {
             );
         }
 
-        // 2. Store in Cache
+        // 3. Store in Cache
         {
             let mut cache = self.cache.write().await;
             cache.insert(text.to_string(), embedding.clone());

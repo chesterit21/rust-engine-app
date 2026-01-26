@@ -36,15 +36,23 @@ pub struct Delta {
     pub content: Option<String>,
 }
 
+use crate::utils::limiters::Limiters;
+use std::{sync::Arc, time::Instant};
+
 #[derive(Clone)]
 pub struct LlmService {
     client: Client,
     config: LlmConfig,
     context_extraction_system_prompt: String,
+    limiters: Arc<Limiters>, // NEW
 }
 
 impl LlmService {
-    pub fn new(config: LlmConfig, context_extraction_system_prompt: String) -> Self {
+    pub fn new(
+        config: LlmConfig,
+        context_extraction_system_prompt: String,
+        limiters: Arc<Limiters>, // NEW
+    ) -> Self {
         Self {
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(config.timeout_seconds))
@@ -52,6 +60,7 @@ impl LlmService {
                 .expect("Failed to create HTTP client"),
             config,
             context_extraction_system_prompt,
+            limiters,
         }
     }
     
@@ -61,6 +70,18 @@ impl LlmService {
         messages: Vec<ChatMessage>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, ApiError>> + Send>>, ApiError> {
         debug!("Starting chat stream with {} messages", messages.len());
+        
+        let (permit, wait) = Limiters::acquire_timed(
+            self.limiters.llm_stream.clone(),
+            self.limiters.acquire_timeout,
+            "llm_stream",
+        )
+        .await
+        .map_err(|e| ApiError::LlmError(e.to_string()))?;
+
+        debug!(wait_ms = wait.as_millis() as u64, op = "llm_stream", "wait_queue");
+
+        let exec_start = Instant::now();
         
         let request = ChatCompletionRequest {
             messages,
@@ -77,6 +98,8 @@ impl LlmService {
             .await
             .map_err(|e| ApiError::LlmError(format!("Failed to call LLM API: {}", e)))?;
         
+        debug!(exec_ms = exec_start.elapsed().as_millis() as u64, op = "llm_stream", "exec");
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
@@ -86,44 +109,63 @@ impl LlmService {
             )));
         }
         
-        // Convert response stream to text stream
-        let stream = response.bytes_stream();
+        let byte_stream = response.bytes_stream();
         
-        // Parse SSE stream
-        let parsed_stream = futures::stream::unfold(stream, |mut stream| async move {
-            use futures::StreamExt;
-            
-            match stream.next().await {
-                Some(Ok(bytes)) => {
-                    // Parse SSE format: "data: {...}\n\n"
-                    let text = String::from_utf8_lossy(&bytes);
-                    
-                    for line in text.lines() {
-                        if line.starts_with("data: ") {
-                            let json_str = line.strip_prefix("data: ").unwrap_or("");
-                            
-                            if json_str == "[DONE]" {
-                                return None;
-                            }
-                            
-                            if let Ok(chunk) = serde_json::from_str::<ChatCompletionChunk>(json_str) {
-                                if let Some(content) = chunk.choices.first()
-                                    .and_then(|c| c.delta.content.as_ref())
-                                {
-                                    return Some((Ok(content.clone()), stream));
+        // SSE buffering (handles split lines across frames)
+        let parsed_stream = futures::stream::unfold(
+            (byte_stream, String::new(), permit),
+            |(mut stream, mut buf, permit)| async move {
+                use futures::StreamExt;
+
+                loop {
+                    match stream.next().await {
+                        Some(Ok(bytes)) => {
+                            buf.push_str(&String::from_utf8_lossy(&bytes));
+
+                            while let Some(nl) = buf.find('\n') {
+                                let mut line = buf[..nl].to_string();
+                                buf.drain(..=nl);
+
+                                if line.ends_with('\r') {
+                                    line.pop();
+                                }
+
+                                if !line.starts_with("data: ") {
+                                    continue;
+                                }
+
+                                let json_str = line.trim_start_matches("data: ").trim();
+
+                                if json_str == "[DONE]" {
+                                    // permit dropped here automatically when state is dropped
+                                    return None;
+                                }
+
+                                if let Ok(chunk) = serde_json::from_str::<ChatCompletionChunk>(json_str) {
+                                    if let Some(content) = chunk
+                                        .choices
+                                        .first()
+                                        .and_then(|c| c.delta.content.as_ref())
+                                    {
+                                        return Some((Ok(content.clone()), (stream, buf, permit)));
+                                    }
                                 }
                             }
+
+                            // belum ketemu payload valid, baca frame berikutnya
+                            continue;
                         }
+                        Some(Err(e)) => {
+                            return Some((
+                                Err(ApiError::LlmError(format!("Stream error: {}", e))),
+                                (stream, buf, permit),
+                            ));
+                        }
+                        None => return None,
                     }
-                    
-                    Some((Ok(String::new()), stream))
                 }
-                Some(Err(e)) => {
-                    Some((Err(ApiError::LlmError(format!("Stream error: {}", e))), stream))
-                }
-                None => None,
-            }
-        });
+            },
+        );
         
         Ok(Box::pin(parsed_stream))
     }
@@ -145,6 +187,18 @@ impl LlmService {
     ) -> Result<String, ApiError> {
         debug!("Starting chat generation with {} messages (max_tokens={}, temp={})", messages.len(), max_tokens, temperature);
         
+        let (_permit, wait) = Limiters::acquire_timed(
+            self.limiters.llm_generate.clone(),
+            self.limiters.acquire_timeout,
+            "llm_generate",
+        )
+        .await
+        .map_err(|e| ApiError::LlmError(e.to_string()))?;
+
+        debug!(wait_ms = wait.as_millis() as u64, op = "llm_generate", "wait_queue");
+
+        let exec_start = Instant::now();
+
         let request = ChatCompletionRequest {
             messages,
             max_tokens,
@@ -160,6 +214,8 @@ impl LlmService {
             .await
             .map_err(|e| ApiError::LlmError(format!("Failed to call LLM API: {}", e)))?;
         
+        debug!(exec_ms = exec_start.elapsed().as_millis() as u64, op = "llm_generate", "exec");
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();

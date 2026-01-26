@@ -30,12 +30,16 @@ pub struct ContextMetrics {
     pub truncated: bool,
 }
 
+use crate::utils::limiters::Limiters;
+use std::time::Instant;
+
 #[derive(Clone)]
 pub struct RagService {
     pub repository: Arc<Repository>,
     pub embedding_service: Arc<EmbeddingService>,
     pub llm_service: Arc<LlmService>,
     pub config: RagConfig,
+    pub limiters: Arc<Limiters>, // NEW
 }
 
 impl RagService {
@@ -44,12 +48,14 @@ impl RagService {
         embedding_service: Arc<EmbeddingService>,
         llm_service: Arc<LlmService>,
         config: RagConfig,
+        limiters: Arc<Limiters>, // NEW
     ) -> Self {
         Self {
             repository,
             embedding_service,
             llm_service,
             config,
+            limiters,
         }
     }
     
@@ -94,9 +100,21 @@ impl RagService {
         info!("Retrieving context with embedding for user {}", user_id);
         
         let vector = Vector::from(query_embedding);
+
+        // Acquire DB-search limiter (covers hybrid/vector search)
+        let (_permit, wait) = Limiters::acquire_timed(
+            self.limiters.db_search.clone(),
+            self.limiters.acquire_timeout,
+            "db_search",
+        )
+        .await
+        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+
+        debug!(wait_ms = wait.as_millis() as u64, op = "db_search", "wait_queue");
+
+        let exec_start = Instant::now();
         
         // Search with timeout protection
- // Search with timeout protection
         let mut chunks = if self.config.rerank_enabled {
             // Hybrid search
             let search_future = self.repository.hybrid_search_user_documents(
@@ -139,6 +157,8 @@ impl RagService {
                 }
             }
         };
+
+        debug!(exec_ms = exec_start.elapsed().as_millis() as u64, op = "db_search", "exec");
         
         // STRATEGY: "Introduction Context"
         // If specific document is targeted (singular), inject first chunk for overview
@@ -148,6 +168,17 @@ impl RagService {
                 let has_intro = chunks.iter().any(|c| c.chunk_index == 0 && c.document_id == doc_id);
                 
                 if !has_intro {
+                    let (_permit, wait) = Limiters::acquire_timed(
+                        self.limiters.db_search.clone(),
+                        self.limiters.acquire_timeout,
+                        "db_search_intro_chunk",
+                    )
+                    .await
+                    .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+
+                    debug!(wait_ms = wait.as_millis() as u64, op = "db_search_intro_chunk", "wait_queue");
+
+                    let exec_start = Instant::now();
                     match self.repository.get_first_chunk(doc_id).await {
                         Ok(Some(intro_chunk)) => {
                             debug!("Injecting intro chunk (index 0) for doc {}", doc_id);
@@ -156,6 +187,7 @@ impl RagService {
                         Ok(None) => debug!("No intro chunk found for doc {}", doc_id),
                         Err(e) => warn!("Failed to fetch intro chunk: {}", e),
                     }
+                    debug!(exec_ms = exec_start.elapsed().as_millis() as u64, op = "db_search_intro_chunk", "exec");
                 }
             }
         }
@@ -232,41 +264,57 @@ impl RagService {
         &self,
         sorted_docs: Vec<GroupedDocument>,
     ) -> (String, ContextMetrics) {
+        use std::fmt::Write;
+        
         let max_tokens = self.config.max_context_tokens;
         
-        let mut context = String::from("DOKUMEN YANG TERSEDIA:\n\n");
+        // Pre-allocate buffer: Heuristic 4 chars per token, capped at reasonable size (e.g., 512KB)
+        let estimated_chars = (max_tokens * 4).min(512 * 1024);
+        let mut context = String::with_capacity(estimated_chars);
+        
+        context.push_str("DOKUMEN YANG TERSEDIA:\n\n");
         let mut metrics = ContextMetrics::default();
         let mut current_tokens = token_estimator::estimate_tokens(&context);
         
         for doc in sorted_docs {
             // Document header with metadata
-            let doc_header = format!(
+            // Use write! to avoid intermediate String allocation
+            let header_start = context.len();
+            let _ = write!(
+                context,
                 "<document id=\"doc_{}\" title=\"{}\" relevance=\"{:.3}\">\n",
                 doc.doc_id,
                 doc.doc_title,
                 doc.avg_similarity
             );
+            let header_len = context.len() - header_start;
             
-            let header_tokens = token_estimator::estimate_tokens(&doc_header);
+            // Estimate tokens just for the added part
+            // Note: optimization - we could estimate based on chars, but stick to tokenizer for correctness first
+            let header_slice = &context[header_start..];
+            let header_tokens = token_estimator::estimate_tokens(header_slice);
             
-            // Check if we can fit this document
-            if token_estimator::would_exceed_limit(current_tokens, &doc_header, max_tokens) {
+            // Check limits
+            if current_tokens + header_tokens > max_tokens {
+                // Rollback
+                context.truncate(header_start);
                 metrics.truncated = true;
                 debug!(
-                    "Context truncated: {} tokens exceeds limit {}",
+                    "Context truncated at doc header: {} > {}",
                     current_tokens + header_tokens,
                     max_tokens
                 );
                 break;
             }
             
-            context.push_str(&doc_header);
             current_tokens += header_tokens;
             metrics.documents_included += 1;
             
             // Add chunks for this document
             for chunk in &doc.chunks {
-                let chunk_text = format!(
+                let chunk_start = context.len();
+                let _ = write!(
+                    context,
                     "<chunk id=\"chunk_{}\" page=\"{}\" similarity=\"{:.3}\">\n{}\n</chunk>\n\n",
                     chunk.chunk_id,
                     chunk.page_number.unwrap_or(0),
@@ -274,26 +322,32 @@ impl RagService {
                     chunk.content.trim()
                 );
                 
-                if token_estimator::would_exceed_limit(current_tokens, &chunk_text, max_tokens) {
+                let chunk_slice = &context[chunk_start..];
+                let chunk_tokens = token_estimator::estimate_tokens(chunk_slice);
+                
+                if current_tokens + chunk_tokens > max_tokens {
+                    // Rollback
+                    context.truncate(chunk_start);
                     metrics.truncated = true;
                     debug!(
-                        "Chunk truncation at doc {} chunk {}",
-                        doc.doc_id, chunk.chunk_id
+                        "Context truncated at chunk: {} > {}",
+                        current_tokens + chunk_tokens,
+                        max_tokens
                     );
                     break;
                 }
                 
-                context.push_str(&chunk_text);
-                current_tokens += token_estimator::estimate_tokens(&chunk_text);
+                current_tokens += chunk_tokens;
                 metrics.chunks_included += 1;
             }
             
-            context.push_str("</document>\n\n");
-            current_tokens += 2;
-            
+            // Closing tag
             if metrics.truncated {
                 break;
             }
+            
+            context.push_str("</document>\n\n");
+            current_tokens += 2; // Approx for closing tag
         }
         
         metrics.total_tokens = current_tokens;

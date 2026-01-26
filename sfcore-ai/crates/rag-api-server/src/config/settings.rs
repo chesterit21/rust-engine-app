@@ -12,6 +12,16 @@ pub struct Settings {
     pub llm: LlmConfig,
     pub rag: RagConfig,
     pub prompts: PromptsConfig,
+    pub limits: LimitsConfig, // NEW
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct LimitsConfig {
+    pub embedding_concurrency: usize,
+    pub db_search_concurrency: usize,
+    pub llm_generate_concurrency: usize,
+    pub llm_stream_concurrency: usize,
+    pub acquire_timeout_ms: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
