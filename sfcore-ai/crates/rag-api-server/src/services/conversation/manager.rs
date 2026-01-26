@@ -62,6 +62,57 @@ impl PlannerIntent {
     }
 }
 
+/// Extract first JSON object substring from a possibly noisy LLM output.
+/// Handles nested braces and braces inside JSON strings (with escapes).
+fn extract_first_json_object(s: &str) -> Option<&str> {
+    let mut start: Option<usize> = None;
+    let mut depth: i32 = 0;
+
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (i, ch) in s.char_indices() {
+        if start.is_none() {
+            if ch == '{' {
+                start = Some(i);
+                depth = 1;
+                in_string = false;
+                escaped = false;
+            }
+            continue;
+        }
+
+        // We are inside an object candidate
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let st = start?;
+                    return Some(&s[st..=i]); // inclusive end
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 /// Trait for embedding service
 #[async_trait::async_trait]
 pub trait EmbeddingProvider: Send + Sync {
@@ -289,6 +340,11 @@ impl ConversationManager {
                 final_doc_ids.push(id);
             }
         }
+        
+        // Normalize: Sort and Dedup to ensure consistent state comparison
+        final_doc_ids.sort_unstable();
+        final_doc_ids.dedup();
+
         let effective_doc_ids = if final_doc_ids.is_empty() { None } else { Some(final_doc_ids) };
 
         self.logger.log(
@@ -347,7 +403,9 @@ impl ConversationManager {
                 .await
                 .unwrap_or_else(|_| "{\"intent\":\"vector\"}".to_string());
 
-            let planner_out = serde_json::from_str::<PlannerOut>(&planner_raw)
+            let planner_json = extract_first_json_object(&planner_raw).unwrap_or(planner_raw.as_str());
+
+            let planner_out = serde_json::from_str::<PlannerOut>(planner_json)
                 .unwrap_or(PlannerOut { intent: "vector".to_string() });
 
             let planner_intent = PlannerIntent::from_str(&planner_out.intent);
