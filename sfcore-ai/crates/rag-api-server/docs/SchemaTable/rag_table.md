@@ -115,8 +115,11 @@ COMMENT ON COLUMN tbl_activity_logs.activity_type IS 'Type: message_sent, retrie
 COMMENT ON COLUMN tbl_activity_logs.processing_time_ms IS 'Total time from request to response in milliseconds';
 ```
 
+### **MAIN CORE DMS.**
+
+#### Inti Table Saat ini
+
 ```sql
--- MAIN CORE DMS.
 CREATE TABLE "TblCategories"(
     "Id" integer GENERATED ALWAYS AS IDENTITY NOT NULL,
     "CategoryName" varchar(100) NOT NULL,
