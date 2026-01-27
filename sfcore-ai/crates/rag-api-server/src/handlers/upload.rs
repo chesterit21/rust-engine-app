@@ -8,6 +8,8 @@ use axum::{
 use serde::Serialize;
 use std::sync::Arc;
 use tracing::{error, info};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::time::Duration;
 
 #[derive(Debug, Serialize)]
 pub struct UploadResponse {
@@ -100,6 +102,16 @@ pub async fn upload_handler(
     // 2. Spawn background task for heavy processing
     let filename_clone = filename.clone();
     let repo_clone = repository.clone(); // Clone for error handling
+    let cm_clone = state.conversation_manager.clone();
+    
+    // ATTACH DOCUMENT TO SESSION (IMPLICIT CONTEXT)
+    // This ensures subsequent chat requests without explicit document_ids will use this document.
+    tokio::spawn(async move {
+        if let Err(e) = cm_clone.attach_document_to_session(session_id, user_id as i64, doc_id as i64).await {
+            error!("Failed to attach document {} to session {}: {}", doc_id, session_id, e);
+        }
+    });
+
     tokio::spawn(async move {
         // Notify start
         event_bus.publish(session_id, SystemEvent::ProcessingStarted { 
@@ -107,26 +119,55 @@ pub async fn upload_handler(
             filename: filename_clone.clone(),
         });
 
-        // 3. Process Logic
-        let eb_clone = event_bus.clone();
-        let on_progress = move |d_id: i32, progress: f64, message: String, status_flag: String| {
-            eb_clone.publish(session_id, SystemEvent::ProcessingProgress { 
-                document_id: d_id, 
-                progress, 
-                message, 
-                status_flag 
-            });
+        // Shared flag to stop the fake progress ticker
+        let is_processing = Arc::new(AtomicBool::new(true));
+        let is_processing_clone = is_processing.clone();
+        
+        // Spawn Fake Progress Ticker (Simulated)
+        let eb_ticker = event_bus.clone();
+        let _filename_ticker = filename_clone.clone();
+        
+        tokio::spawn(async move {
+            let mut fake_progress = 0.0;
+            // Loop until processing is done, maxing out at 90%
+            while is_processing_clone.load(Ordering::Relaxed) && fake_progress < 90.0 {
+                fake_progress += 5.0; // Naik 5% setiap tick
+                if fake_progress > 90.0 { fake_progress = 90.0; }
+                
+                eb_ticker.publish(session_id, SystemEvent::ProcessingProgress { 
+                    document_id: doc_id, 
+                    progress: fake_progress, 
+                    message: format!("Processing... {:.0}%", fake_progress), 
+                    status_flag: "processing".to_string() 
+                });
+                
+                // Sleep 500ms
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        });
+
+        // 3. Process Logic (Silent - No real progress reported to EventBus)
+        // We pass a dummy closure because we rely on the fake ticker for UI feedback
+        let on_progress_silent = |_, _, _, _| {
+             // Do nothing (Silent)
         };
 
-        match doc_service.process_document_background(doc_id, file_type, file_data, on_progress).await {
+        match doc_service.process_document_background(doc_id, file_type, file_data, on_progress_silent).await {
             Ok((_, chunks_count)) => {
+                // Stop ticker
+                is_processing.store(false, Ordering::Relaxed);
+                
                 info!("Background processing completed for doc {}", doc_id);
+                // Immediately send 100%
                 event_bus.publish(session_id, SystemEvent::ProcessingCompleted { 
                     document_id: doc_id, 
                     chunks_count 
                 });
             }
             Err(e) => {
+                // Stop ticker
+                is_processing.store(false, Ordering::Relaxed);
+                
                 error!("Background processing failed for {}: {}", filename_clone, e);
                 // Update DB status to failed so it disappears from progress bar
                 let _ = repo_clone.upsert_document_processing_status(doc_id, "failed", 0.0, Some(e.to_string())).await;

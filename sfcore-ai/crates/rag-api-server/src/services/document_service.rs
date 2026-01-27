@@ -103,7 +103,26 @@ impl DocumentService {
         // 4. Generate embeddings (batch)
         report_progress(0.6, "Generating embeddings (this might take a while)...".to_string(), "embedding-inprogress".to_string());
         let texts: Vec<String> = chunks.clone();
-        let embeddings = self.embedding_service.embed_batch(texts).await?;
+        
+        // REFACTOR: Use strict batching to avoid Limiter Timeout (deadlock on large files)
+        // Previous join_all(futures) spawned ALL requests at once, flooding the semaphore queue.
+        // If queue time > 15s (acquire_timeout), tasks fail/stagnate.
+        let batch_size = 5;
+        let mut embeddings = Vec::with_capacity(texts.len());
+        
+        for (i, batch_texts) in texts.chunks(batch_size).enumerate() {
+             let total_batches = (texts.len() + batch_size - 1) / batch_size;
+             report_progress(
+                 0.6 + (0.2 * (i as f64 / total_batches as f64)), 
+                 format!("Embedding batch {}/{}...", i + 1, total_batches), 
+                 "embedding-inprogress".to_string()
+             );
+             
+             // Process this batch
+             let batch_embeddings = self.embedding_service.embed_batch(batch_texts.to_vec()).await?;
+             embeddings.extend(batch_embeddings);
+        }
+
         debug!("Generated {} embeddings", embeddings.len());
         
         // 5. Build chunk data

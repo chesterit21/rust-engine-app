@@ -1,6 +1,6 @@
 use serde::Serialize;
 use tokio::sync::broadcast;
-use tracing::warn;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "payload")]
@@ -31,7 +31,9 @@ impl EventBus {
     pub fn publish(&self, session_id: i64, event: SystemEvent) {
         let session_event = SessionEvent { session_id, event };
         if let Err(e) = self.tx.send(session_event) {
-            warn!("Failed to publish event (maybe no subscribers): {}", e);
+            // Use debug instead of warn because having no subscribers is normal 
+            // during init or if the chat tab is closed.
+            debug!("Event not delivered (no subscribers): {}", e);
         }
     }
 

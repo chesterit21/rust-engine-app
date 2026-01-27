@@ -28,8 +28,8 @@ members = [
 ]
 resolver = "2"
 
-[patch.crates-io]
-llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }
+#[patch.crates-io]
+#llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }
 
 # ============================================================================
 # SSO Workspace Dependencies
@@ -37,9 +37,9 @@ llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }
 
 [workspace.dependencies]
 # Web Framework
-axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
-tower = { version = "0.4", features = ["full"] }
-tower-http = { version = "0.5", features = ["cors", "compression-gzip", "trace", "timeout", "request-id", "fs"] }
+axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.6.8", features = ["cors", "compression-gzip", "trace", "timeout", "request-id", "fs"] }
 hyper = { version = "1.1", features = ["full"] }
 
 # Async Runtime
@@ -63,29 +63,29 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Security & Authentication
-jsonwebtoken = "9.2"
-oauth2 = "4.4"
+jsonwebtoken = { version = "10.2", features = ["aws_lc_rs"] }
+oauth2 = "5.0"
 argon2 = { version = "0.5", features = ["std"] }
-bcrypt = "0.15"
-rand = "0.8"
+bcrypt = "0.18"
+rand = "0.9"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 sha2 = "0.10"
 hex = "0.4"
 
 # Validation
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 email_address = "0.2"
 
 # Caching
-redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "cluster"] }
-deadpool-redis = "0.14"
+redis = { version = "1.0", features = ["tokio-comp", "connection-manager", "cluster"] }
+deadpool-redis = "0.22"
 
 # Configuration
-config = "0.14"
+config = "0.15"
 dotenvy = "0.15"
 
 # Error Handling
-thiserror = "1.0"
+thiserror = "2.0"
 anyhow = "1.0"
 
 # Logging & Tracing
@@ -98,33 +98,33 @@ chrono = { version = "0.4", features = ["serde"] }
 time = "0.3"
 
 # HTTP Client
-reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", features = ["json", "rustls-tls"] }
 
 # Password strength checker
-zxcvbn = "2.2"
+zxcvbn = "3.1"
 
 # Rate Limiting
-governor = "0.6"
+governor = "0.10"
 
 # Testing
-mockall = "0.12"
-fake = { version = "2.9", features = ["derive", "chrono", "uuid"] }
+mockall = "0.14"
+fake = { version = "4.4", features = ["derive", "chrono", "uuid"] }
 wiremock = "0.6"
 
 # Email
 lettre = { version = "0.11", features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
 
 # Templating (for email templates)
-handlebars = "5.0"
+handlebars = "6.0"
 
 # Regex
 regex = "1.10"
 
 # IP Address
-ipnetwork = "0.20"
+ipnetwork = "0.21"
 
 # Metrics
-prometheus = "0.13"
+prometheus = "0.14"
 
 # Internal SSO crates
 # sso-core = { path = "crates/sso-core" }

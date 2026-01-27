@@ -19,11 +19,11 @@ pool_timeout_seconds = 30
 
 [embedding]
 model = "text-embedding-3-small"
-base_url = "https://api.openai.com/v1"
-dimension = 1536
+base_url = "http://127.0.0.1:8081"
+dimension = 512
 
 [llm]
-base_url = "https://api.openai.com/v1"
+base_url = "http://127.0.0.1:8081"
 timeout_seconds = 300
 max_tokens = 2000
 stream_response = true

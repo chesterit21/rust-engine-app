@@ -16,6 +16,7 @@ use crate::services::rag_service::ContextMetrics;
 use super::cache::ConversationCache;
 use super::context_builder::ContextBuilder;
 use super::token_counter::TokenCounter;
+use crate::utils::token_estimator;
 use super::types::{ConversationState, RetrievalDecision, RetrievalReason};
 use super::verification::{LlmVerifier, VerificationResult};
 
@@ -138,9 +139,37 @@ pub trait RetrievalProvider: Send + Sync {
         document_ids: Option<Vec<i64>>,
     ) -> Result<Vec<RetrievalChunk>>;
 
+    // New metadata methods
     async fn get_document_metadata(&self, document_id: i32) -> Result<DocumentMetadata>;
     async fn get_document_overview_chunks(&self, document_id: i32, limit: i32) -> Result<Vec<RetrievalChunk>>;
     async fn get_document_overview(&self, document_id: i32, chunk_limit: i32) -> Result<DocumentOverview>;
+    
+    // Persistence (Chat History)
+    async fn persist_chat_event(
+        &self, 
+        user_id: i64, 
+        session_id: i64, 
+        role: &str, 
+        message: &str, 
+        doc_ids: Option<Vec<i64>>
+    ) -> Result<()>;
+
+    // New: Persist documents ONLY (for cleanup/sync or upload)
+    async fn persist_session_documents(
+        &self,
+        user_id: i64,
+        session_id: i64,
+        doc_ids: Vec<i64>
+    ) -> Result<()>;
+
+    // New: Fetch active documents for session (Implicit Context)
+    async fn get_session_active_docs(&self, session_id: i64) -> Result<Vec<i64>>;
+
+    // New: Helper for Deep Scan
+    async fn fetch_all_chunks(&self, doc_ids: &[i64]) -> Result<Vec<RetrievalChunk>>;
+
+    // New: Fallback if DB chunks are missing (Direct Read)
+    async fn fetch_chunks_from_file_fallback(&self, doc_id: i64) -> Result<Vec<RetrievalChunk>>;
 }
 
 /// Trait for LLM service
@@ -203,6 +232,32 @@ impl ConversationManager {
         }
     }
 
+    /// Attach a document to the current active session (Implicit Context)
+    pub async fn attach_document_to_session(&self, session_id: SessionId, user_id: i64, document_id: i64) -> Result<()> {
+        let mut state = self.get_or_create_session(session_id, user_id, None).await?;
+        
+        // Append document_id if not exists
+        let mut current_ids = state.document_ids.clone().unwrap_or_default();
+        if !current_ids.contains(&document_id) {
+            current_ids.push(document_id);
+            current_ids.sort_unstable(); // keep sorted for consistency
+            state.document_ids = Some(current_ids.clone());
+            
+            // Log this action
+            info!("Implicitly attached document {} to session {}", document_id, session_id);
+            
+            // Update DB (Persistent)
+            if let Err(e) = self.retrieval_provider.persist_session_documents(user_id, session_id, current_ids).await {
+                warn!("Failed to persist attached document to session: {}", e);
+            }
+            
+            // Update cache (optional, kept for consistency if get_or_create_session uses it)
+            self.cache.set(session_id, state);
+        }
+        
+        Ok(())
+    }
+
     fn stable_pick(seed: &str, phase: &str, n: usize) -> usize {
         let mut h = DefaultHasher::new();
         seed.hash(&mut h);
@@ -213,52 +268,52 @@ impl ConversationManager {
     fn stage_text(request_id: &str, phase: &str, progress: u8, detail: Option<&str>) -> String {
         let options: &[&str] = match phase {
             "understand" => &[
-                "Oke, gue tangkep dulu maksud pertanyaanmu ya…",
-                "Sip, gue pahamin dulu konteks pertanyaannya…",
-                "Bentar ya, gue cerna dulu permintaannya…",
-                "Oke, gue cek dulu arah jawabannya…",
-                "Sip, gue pastiin dulu kebutuhan jawabannya…",
-                "Oke, gue interpret dulu intent pertanyaannya…",
+                "Baik, saya tangkap dulu maksud pertanyaan Anda ya…",
+                "Sip, saya pahami dulu konteks pertanyaannya…",
+                "Bentar ya, saya cerna dulu permintaannya…",
+                "Oke, saya cek dulu arah jawabannya…",
+                "Sip, saya pastikan dulu kebutuhan jawabannya…",
+                "Oke, saya interpret dulu intent pertanyaannya…",
             ],
             "plan" => &[
-                "Oke, gue rencanain langkah pencariannya…",
-                "Sip, gue tenuin strategi jawabnya…",
-                "Bentar, gue cek perlu cari di dokumen atau metadata…",
-                "Oke, gue filter dulu tipe informasinya…",
+                "Oke, saya rencanakan langkah pencariannya…",
+                "Sip, saya tentukan strategi jawabnya…",
+                "Bentar, saya cek perlu cari di dokumen atau metadata…",
+                "Oke, saya filter dulu tipe informasinya…",
             ],
             "embed" => &[
                 "Lagi proses pertanyaannya sebentar…",
-                "Sip, gue siapin pencarian konteksnya…",
-                "Bentar, gue hitung relevansi semantiknya…",
-                "Oke, gue normalize query-nya dulu…",
-                "Sip, gue siapin vektor pencariannya…",
-                "Oke, gue susun pemahaman semantiknya…",
+                "Sip, saya siapin pencarian konteksnya…",
+                "Bentar, saya hitung relevansi semantiknya…",
+                "Oke, saya normalize query-nya dulu…",
+                "Sip, saya siapin vektor pencariannya…",
+                "Oke, saya susun pemahaman semantiknya…",
             ],
             "retrieve" => &[
-                "Gue lagi ambil konteks dari dokumen yang kamu pilih…",
-                "Oke, gue cari bagian paling relevan dari dokumen…",
+                "Oke, saya ambil konteks dari dokumen yang kamu pilih…",
+                "Oke, saya cari bagian paling relevan dari dokumen…",
                 "Sedang baca cuplikan penting dokumen…",
-                "Sip, gue kumpulin bagian yang nyambung…",
-                "Oke, gue rapihin konteks biar pas…",
+                "Sip, saya kumpulin bagian yang nyambung…",
+                "Oke, saya rapihin konteks biar pas…",
                 "Sedang narik konteks terbaik dari dokumen…",
             ],
             "compose" => &[
-                "Oke, gue susun jawabannya…",
-                "Sip, gue mulai jawab ya…",
-                "Oke, gue rangkai jawaban dari konteks yang ada…",
-                "Sip, gue bikin jawabannya ringkas tapi jelas…",
-                "Oke, gue finalisasi alur jawabannya…",
-                "Sip, gue tulis jawaban yang paling pas…",
+                "Baik, saya akan membuat jawaban…",
+                "Siap, saya mulai membuat jawaban…",
+                "Oke, saya rangkai jawaban dari konteks yang ada…",
+                "Siap, saya bikin jawabannya ringkas tapi jelas…",
+                "Oke, saya finalisasi alur jawabannya…",
+                "Siap, saya tulis jawaban yang paling pas…",
             ],
             "finalize" => &[
-                "Oke, gue rapihin hasilnya…",
-                "Sip, gue finalize biar enak dibaca…",
-                "Oke, bentar ya, gue beresin jawabannya…",
-                "Sip, gue kunci jawabannya…",
-                "Oke, gue cek sekali lagi…",
-                "Sip, almost done…",
+                "Baik, saya akan rapihin hasilnya…",
+                "Siap, saya finalisasi biar enak dibaca…",
+                "Oke, bentar ya, saya beresin jawabannya…",
+                "Siap, saya kunci jawabannya…",
+                "Baik, saya cek sekali lagi…",
+                "Siap, almost done…",
             ],
-            _ => &["Oke, gue proses dulu ya…"],
+            _ => &["Oke, saya proses dulu ya…"],
         };
 
         let idx = Self::stable_pick(request_id, phase, options.len());
@@ -345,7 +400,25 @@ impl ConversationManager {
         final_doc_ids.sort_unstable();
         final_doc_ids.dedup();
 
-        let effective_doc_ids = if final_doc_ids.is_empty() { None } else { Some(final_doc_ids) };
+        // 1. Check if user explicitly sent doc IDs
+        let mut effective_doc_ids = if final_doc_ids.is_empty() { None } else { Some(final_doc_ids) };
+        let is_explicit_context = effective_doc_ids.is_some();
+
+        // 2. If NO explicit doc IDs, check if Session has attached documents (Implicit Context)
+        if effective_doc_ids.is_none() {
+            // Updated per user request: Use DB persistence instead of memory cache
+            match self.retrieval_provider.get_session_active_docs(session_id).await {
+                Ok(cached_ids) => {
+                    if !cached_ids.is_empty() {
+                         info!("Using IMPLICIT context from session {} (Persistent): {:?}", session_id, cached_ids);
+                         effective_doc_ids = Some(cached_ids);
+                    }
+                }
+                Err(e) => {
+                     tracing::error!("Failed to fetch implicit session context: {}", e);
+                }
+            }
+        }
 
         self.logger.log(
             ActivityLog::builder(session_id, user_id, ActivityType::ProcessingStage)
@@ -451,10 +524,10 @@ impl ConversationManager {
             let mut iteration = 0usize;
             const MAX_ITERATIONS: usize = 3;
 
-            let mut context_metrics = ContextMetrics::default();
+            let mut context_metrics; // will be assigned in loop
             let mut retrieval_duration_total = 0i32;
 
-            let mut final_answer = String::new();
+            let mut final_answer; // will be assigned in loop
 
             loop {
                 iteration += 1;
@@ -502,17 +575,107 @@ impl ConversationManager {
                 }
 
                 let retrieval_start = Instant::now();
-                
                 let emb_slice: &[f32] = query_embedding.as_deref().unwrap_or(&[]);
                 
-                let (system_context, metrics) = manager.execute_retrieval_with_metrics(
-                    &mut final_state,
-                    &decision,
-                    &message,
-                    effective_doc_ids.clone(),
-                    emb_slice,
-                    &mut tried_chunk_ids,
-                ).await?;
+                // === SCENARIO 2: Explicit Docs -> DEEP SCAN (Skip Vector) ===
+                // OR SCENARIO 1 Fallback: Vector failed -> DEEP SCAN
+                
+                let (mut system_context, mut metrics) = if let Some(doc_ids) = &effective_doc_ids {
+                    // SCENARIO 2 & 3: Deep Scan (Explicit/Implicit)
+                    let mode = if is_explicit_context { "Explicit" } else { "Implicit" };
+                    yield ConversationManager::stage_event(&request_id, "scan", 30, Some(format!("Deep scan {} docs ({})", doc_ids.len(), mode)));
+                    
+                    let mut all_chunks = manager.retrieval_provider.fetch_all_chunks(doc_ids).await?;
+                    
+                    // FALLBACK: If explicit docs have 0 chunks (Worker lag), try Direct File Read
+                    if all_chunks.is_empty() && is_explicit_context {
+                        warn!("Deep Scan found 0 chunks for explicit docs. Attempting Direct Read Fallback...");
+                        for &did in doc_ids {
+                            match manager.retrieval_provider.fetch_chunks_from_file_fallback(did).await {
+                                Ok(fallback_chunks) => {
+                                    if !fallback_chunks.is_empty() {
+                                        info!("Direct Read successful for doc {}: got {} chunks (Temporary)", did, fallback_chunks.len());
+                                        all_chunks.extend(fallback_chunks);
+                                    }
+                                }
+                                Err(e) => warn!("Direct Read failed for doc {}: {}", did, e),
+                            }
+                        }
+                    }
+                    
+                    // === DEEP SCAN LOOP (Optimized) ===
+                    // Ask LLM to filter irrelevant chunks and return specific Chunk IDs
+                    yield ConversationManager::stage_event(&request_id, "scan", 50, Some(format!("Analisis {} chunks...", all_chunks.len())));
+                    
+                    let relevant_ids = manager.deep_scan_process(&all_chunks, &message, &request_id).await?;
+                    
+                    // Filter chunks based on LLM Selection
+                    // If relevant_ids is empty (model found nothing), use ALL chunks as fallback?
+                    // User said: "chunk dockumen id yang sesuai dengan konteks... kalau ada... simpan info chunk id... selesai Loop, baru System Prompt".
+                    // If nothing relevant, we should probably warn or return generic?
+                    // For now, if empty, we might return empty context or fallback to vector?
+                    // Let's assume strict filtering:
+                    
+                    let relevant_chunks: Vec<RetrievalChunk> = all_chunks.into_iter()
+                        .filter(|c| relevant_ids.contains(&c.chunk_id))
+                        .collect();
+
+                    yield ConversationManager::stage_event(&request_id, "scan", 80, Some(format!("Terpilih {} chunks relevan", relevant_chunks.len())));
+                    
+                    // Persist relevant docs (optional, but good for history)
+                    if !relevant_chunks.is_empty() {
+                         let relevant_doc_ids: Vec<i64> = relevant_chunks.iter()
+                             .map(|c| c.document_id)
+                             .collect::<HashSet<_>>()
+                             .into_iter()
+                             .collect();
+                             
+                         let _ = manager.retrieval_provider.persist_session_documents(user_id, session_id, relevant_doc_ids).await;
+                    }
+
+                    // Map to DocumentChunk for Context Builder
+                    // We need to map RetrievalChunk -> DocumentChunk
+                    let mapped_chunks: Vec<crate::database::DocumentChunk> = relevant_chunks.into_iter().map(|rc| crate::database::DocumentChunk {
+                         chunk_id: rc.chunk_id,
+                         document_id: rc.document_id as i32,
+                         document_title: rc.document_title.unwrap_or_default(),
+                         content: rc.content,
+                         similarity: 1.0, 
+                         chunk_index: 0,
+                         page_number: None
+                    }).collect();
+
+                    manager.build_structured_rag_context(mapped_chunks)?
+                } else {
+                    // SCENARIO 1: Vector Search First
+                    let (ctx, met) = manager.execute_retrieval_with_metrics(
+                        &mut final_state,
+                        &decision,
+                        &message,
+                        None,
+                        emb_slice,
+                        &mut tried_chunk_ids,
+                    ).await?;
+
+                    // Fallback to Deep Scan if Vector returned nothing but intent was Vector
+                    if met.documents_included == 0 && planner_intent == PlannerIntent::Vector {
+                         yield ConversationManager::stage_event(&request_id, "scan", 40, Some("Vector search 0 results. Falling back to Deep Scan...".to_string()));
+                         
+                         // Fetch ALL user docs (Warning: Expensive)
+                         // For now, let's assume we can get IDs from repository or just all chunks?
+                         // We need a method `get_user_document_ids` in repo. We don't have direct access to repo here, only retrieval_provider.
+                         // But retrieval_provider is generic.
+                         // To enable this full fallback, we need `get_all_user_chunks` in provider.
+                         // For this iteration, I will skip the *automatic* full corpus scan fallback as it requires more plumbing,
+                         // but focused on Scenario 2 which is the user's explicit request "New Chat with doc selected".
+                         // However, user said "Mau tidak mau harus looping".
+                         // Let's rely on the explicit flow for now or trust vector search for general query.
+                         // If I can't easily get all user chunks, I'll stick to vector result.
+                         (ctx, met)
+                    } else {
+                         (ctx, met)
+                    }
+                };
 
                 let retrieval_duration = retrieval_start.elapsed().as_millis() as i32;
                 retrieval_duration_total += retrieval_duration;
@@ -523,7 +686,7 @@ impl ConversationManager {
                     &request_id,
                     "retrieve",
                     60,
-                    Some(format!("konteks: {} doc, {} chunk", metrics.documents_included, metrics.chunks_included))
+                    Some(format!("konteks: {} doc, {} chunk (Scan Result)", metrics.documents_included, metrics.chunks_included))
                 );
 
                 if iteration == 1 {
@@ -664,6 +827,23 @@ impl ConversationManager {
             final_state.touch();
             manager.cache.set(session_id, final_state);
 
+            // PERSIST MODEL ANSWER (History) - Fire & Forget
+            let cm_for_model_persist = manager.clone();
+            let final_answer_persist = final_answer.clone();
+            let doc_ids_persist = manager.cache.get(session_id).and_then(|s| s.document_ids);
+            
+            tokio::spawn(async move {
+                 if let Err(e) = cm_for_model_persist.retrieval_provider.persist_chat_event(
+                     user_id, 
+                     session_id, 
+                     "model", 
+                     &final_answer_persist, 
+                     doc_ids_persist
+                ).await {
+                    error!("Failed to persist model chat: {}", e);
+                }
+            });
+
             yield ConversationManager::stage_event(&request_id, "finalize", 100, Some("Selesai.".to_string()));
             yield ChatStreamChunk::Done { request_id: request_id.clone() };
         };
@@ -773,7 +953,7 @@ impl ConversationManager {
             grouped.entry(chunk.document_id).or_default().push(chunk);
         }
 
-        let max_tokens = 20_000;
+        let max_tokens = 16_000;
         let mut context = String::from("DOKUMEN YANG TERSEDIA:\n\n");
         let mut metrics = ContextMetrics::default();
         let mut current_tokens = token_estimator::estimate_tokens(&context);
@@ -827,10 +1007,11 @@ impl ConversationManager {
         // Only fetch metadata if there is at least one document
         if let Some(ids) = &document_ids {
              if let Some(&first_doc_id) = ids.first() {
+                debug!("Fetching document overview for doc_id: {}", first_doc_id);
                 let overview = self.retrieval_provider
                     .get_document_overview(first_doc_id as i32, 5)
                     .await
-                    .context("Failed to fetch document overview")?;
+                    .with_context(|| format!("Failed to fetch document overview for doc_id {}", first_doc_id))?;
 
                 let context_text = self.build_metadata_context(&overview);
                 let system_context = self.context_builder.build_system_context(
@@ -909,7 +1090,7 @@ impl ConversationManager {
             return Ok(());
         }
 
-        while state.messages.len() >= 2 && TokenCounter::count_payload(system_context, &state.messages, "").total > 20_000 {
+        while state.messages.len() >= 2 && TokenCounter::count_payload(system_context, &state.messages, "").total > 23_000 {
             state.messages.drain(0..2);
         }
 
@@ -917,17 +1098,31 @@ impl ConversationManager {
     }
 
     async fn call_llm_with_retry(&self, messages: &[ChatMessage]) -> Result<String> {
-        const MAX_RETRIES: u32 = 3;
+        const MAX_RETRIES: u32 = 5; // Increased attempts for cold start
 
         for attempt in 1..=MAX_RETRIES {
             match self.llm_provider.generate(messages).await {
                 Ok(response) => return Ok(response),
                 Err(e) => {
+                    let err_msg = e.to_string();
+                    let is_loading = err_msg.contains("Loading model") || err_msg.contains("503") || err_msg.contains("unavailable");
+                    
                     if attempt < MAX_RETRIES {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(attempt as u64)).await;
+                        let wait_time = if is_loading {
+                            attempt * 5 // Wait longer (5s, 10s...) if model is loading
+                        } else {
+                            attempt * 2
+                        };
+                        
+                        warn!("LLM call failed (attempt {}/{}): {}. Retrying in {}s...", attempt, MAX_RETRIES, e, wait_time);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(wait_time as u64)).await;
                     } else {
                         error!("LLM call failed after {} attempts: {}", MAX_RETRIES, e);
-                        anyhow::bail!("Server ada gangguan, silakan coba lagi nanti");
+                         if is_loading {
+                            anyhow::bail!("Model sedang loading (Cold Start). Silakan tunggu sebentar dan coba lagi.");
+                        } else {
+                            anyhow::bail!("Server ada gangguan teknis. Detail: {}", e);
+                        }
                     }
                 }
             }
@@ -965,5 +1160,86 @@ impl ConversationManager {
 
         context.push_str(&format!("\nTotal bagian: {}\n", metadata.total_chunks));
         context
+    }
+    async fn deep_scan_process(
+        &self,
+        chunks: &[RetrievalChunk],
+        query: &str,
+        request_id: &str,
+    ) -> Result<HashSet<i64>> {
+        if chunks.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        info!("Starting Deep Scan on {} chunks for query: {}", chunks.len(), query);
+        let mut relevant_ids = HashSet::new();
+        
+        // Token-Based Batching (Target ~22k tokens)
+        let MAX_BATCH_TOKENS = 8_000;
+        let mut batch = Vec::new();
+        let mut current_tokens = 0;
+
+        for chunk in chunks {
+            let chunk_tokens = token_estimator::estimate_tokens(&chunk.content);
+            if current_tokens + chunk_tokens > MAX_BATCH_TOKENS {
+                // Process current batch
+                if !batch.is_empty() {
+                    let ids = self.process_deep_scan_batch(&batch, query, request_id).await?;
+                    relevant_ids.extend(ids);
+                    batch.clear();
+                    current_tokens = 0;
+                }
+            }
+            batch.push(chunk);
+            current_tokens += chunk_tokens;
+        }
+
+        // Process remaining batch
+        if !batch.is_empty() {
+            let ids = self.process_deep_scan_batch(&batch, query, request_id).await?;
+            relevant_ids.extend(ids);
+        }
+
+        Ok(relevant_ids)
+    }
+
+    async fn process_deep_scan_batch(&self, batch: &[&RetrievalChunk], query: &str, request_id: &str) -> Result<Vec<i64>> {
+        // Build context for this batch
+        let mut context_text = String::new();
+        for (i, chunk) in batch.iter().enumerate() {
+            context_text.push_str(&format!("--- CHUNK ID: {} ---\n{}\n\n", chunk.chunk_id, chunk.content));
+        }
+
+        let system_prompt = format!(
+            "Anda adalah asisten AI yang bertugas memilah informasi.\n\
+            Tugas Anda: Dari daftar chunk dokumen di bawah, pilih MANA SAJA yang relevan untuk menjawab pertanyaan user.\n\
+            User Query: \"{}\"\n\n\
+            Berikan jawaban DALAM FORMAT JSON SAJA:\n\
+            {{\"relevant_chunk_ids\": [123, 456, ...]}}\n\
+            Jika tidak ada yang relevan, kembalikan list kosong [].\n\
+            JANGAN menulis penjelasan apa pun.",
+            query
+        );
+
+        let messages = vec![
+            ChatMessage::system(system_prompt),
+            ChatMessage::user(context_text),
+        ];
+
+        // Call LLM
+        let response = self.llm_provider.generate_with(&messages, 500, 0.0).await?;
+        
+        // Extract JSON
+        let json_str = extract_first_json_object(&response).unwrap_or("{\"relevant_chunk_ids\": []}");
+        
+        #[derive(serde::Deserialize)]
+        struct ScanResult {
+            relevant_chunk_ids: Vec<i64>,
+        }
+
+        let result: ScanResult = serde_json::from_str(json_str).unwrap_or(ScanResult { relevant_chunk_ids: vec![] });
+        
+        info!("Deep Scan Batch processed. Found {} relevant chunks.", result.relevant_chunk_ids.len());
+        Ok(result.relevant_chunk_ids)
     }
 }

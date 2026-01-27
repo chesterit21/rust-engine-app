@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Web framework
-axum = { version = "0.7", features = ["macros", "multipart"] }
+axum = { version = "0.8", features = ["macros", "multipart"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["fs", "cors", "trace", "catch-panic"] }
 
@@ -25,36 +25,38 @@ sqlx = { version = "0.8", features = [
 pgvector = { version = "0.4", features = ["sqlx"] }
 
 # HTTP client (llama-server)
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
 
 # Auth & Security
-jsonwebtoken = "9.3"
+jsonwebtoken = { version = "10.2", features = ["aws_lc_rs"] }
 argon2 = "0.5"
-rand = "0.8"
+rand = "0.9"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.8"
+toml = "0.9"
 
 # Document processing (Code reuse/port)
-lopdf = "0.35"
+lopdf = "0.39"
 docx-rs = "0.4"
-pulldown-cmark = "0.12"
-scraper = "0.21"
+pulldown-cmark = "0.13"
+scraper = "0.25"
 encoding_rs = "0.8"
-text-splitter = { version = "0.18", features = ["tiktoken-rs"] }
-calamine = "0.24" # Excel (xlsx, xls)
-quick-xml = "0.36" # XML parsing for pptx
-zip = "2.2" # Reading zip files (pptx structure)
-rtf-parser = "0.3" # RTF support
+text-splitter = { version = "0.29", features = ["tiktoken-rs"] }
+calamine = "0.32" # Excel (xlsx, xls)
+quick-xml = "0.39" # XML parsing for pptx
+zip = { version = "7.2", default-features = false, features = ["deflate"] } # Office docs (pptx, docx) only need deflate
+rtf-parser = "0.4" # RTF support
+lzma-rust2 = "0.15.7" # Pinned version for stability
+crc = "2.1.0" # Force compatible version for lzma-rust2 while sqlx uses 3.x
 
 # Utils
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-config = "0.14"
+config = "0.15"
 dotenvy = "0.15"
 tracing-appender = "0.2"
 chrono = { version = "0.4", features = ["serde"] }
@@ -69,15 +71,15 @@ regex = "1.10"  # Add this line
 hex = "0.4"
 hmac = "0.12"
 sha2 = "0.10"
-base64 = "0.21"
+base64 = "0.22"
 async-stream = "0.3"
-ipnetwork = "0.20"
-notify = "6.1"
+ipnetwork = "0.21"
+notify = "8.2"
 
 # === Memory System ===
 dashmap = "6.1"
 unicode-segmentation = "1.12"
-sysinfo = "0.31"
+sysinfo = "0.38"
 parking_lot = "0.12"
 flume = "0.12.0"
 infer = "0.19.0"
@@ -85,7 +87,7 @@ infer = "0.19.0"
 
 
 [dev-dependencies]
-mockall = "0.13"
+mockall = "0.14"
 
 [profile.release]
 opt-level = 3

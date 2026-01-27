@@ -2,12 +2,12 @@ use super::{DbPool, DocumentChunk, UserDocument};
 use anyhow::Result;
 use pgvector::Vector;
 use sqlx::{Row, FromRow};
-use tracing::debug;
+use tracing::{debug, warn};
 use chrono::{DateTime, Utc};
 use super::models::{DocumentMetadata, DocumentOverview};
 
 pub struct Repository {
-    pool: DbPool,
+    pub pool: DbPool,
 }
 
 impl Repository {
@@ -407,9 +407,9 @@ impl Repository {
             INSERT INTO "TblDocuments" (
                 "Owner", "DocumentTitle", "DocumentDesc", 
                 "InsertedBy", "InsertedAt", "UpdatedAt", "IsDeleted", 
-                "FileSize", "FileType", "CategoryId"
+                "FileSize", "CategoryID", "IsActive"
             )
-            VALUES ($1, $2, $3, $4, NOW(), NOW(), false, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, NOW(), NOW(), false, $5, $6, true)
             RETURNING "Id"
             "#
         )
@@ -418,7 +418,6 @@ impl Repository {
         .bind(document_desc)
         .bind(user_id)
         .bind(file_size)
-        .bind(file_type)
         .bind(category_id)
         .fetch_one(&mut *transaction)
         .await?;
@@ -426,19 +425,22 @@ impl Repository {
         let document_id: i32 = row.get("Id");
         
         // Insert into TblDocumentFiles
-        // (Assuming logic remains somewhat similar, verifying usage)
+        // Note: Corrected column names based on TblDocumentFiles schema
          sqlx::query(
             r#"
             INSERT INTO "TblDocumentFiles" (
-                "DocumentId", "FileName", "FilePath", "IsMainDocumentFile", 
-                "InsertedBy", "InsertedAt", "UpdatedAt", "IsDeleted"
+                "DocumentID", "DocumentType", "DocumentFileName", "DocumentFileSize", 
+                "DocumentFilePath", "IsMainDocumentFile", 
+                "InsertedBy", "InsertedAt", "UpdatedAt", "IsDeleted", "IsActive"
             )
-            VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), false)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), false, true)
             "#
         )
         .bind(document_id)
-        .bind(filename)
-        .bind(file_path)
+        .bind(file_type) // DocumentType
+        .bind(filename)   // DocumentFileName
+        .bind(file_size)  // DocumentFileSize
+        .bind(file_path)  // DocumentFilePath
         .bind(true) // IsMainDocumentFile
         .bind(user_id)
         .execute(&mut *transaction)
@@ -556,5 +558,206 @@ impl Repository {
         .await?;
         
         Ok(docs)
+    }
+
+    // ============ CHAT HISTORY PERSISTENCE ============
+
+    /// Ensure chat history tables exist (schema V3)
+    pub async fn ensure_chat_history_tables(&self) -> Result<()> {
+        let pool = self.pool.get_pool();
+        
+        // 1. Chat History Header
+        // tbl_history_chat (id guid, session_id, user_id, created_at)
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS tbl_history_chat (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                session_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                CONSTRAINT uq_session_id UNIQUE (session_id)
+            )"#
+        )
+        .execute(pool)
+        .await?;
+
+        // 2. Chat Details (Messages)
+        // tbl_history_chat_detail (id guid, history_chat_id guid, role, message, created_at)
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS tbl_history_chat_detail (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                history_chat_id UUID NOT NULL REFERENCES tbl_history_chat(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )"#
+        )
+        .execute(pool)
+        .await?;
+
+        // 3. Document Links (Docs used in session)
+        // tbl_history_chat_doc (id uid, history_chat_id guid, doc_ids array)
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS tbl_history_chat_doc (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                history_chat_id UUID NOT NULL REFERENCES tbl_history_chat(id) ON DELETE CASCADE,
+                doc_ids BIGINT[]
+            )"#
+        )
+        .execute(pool)
+        .await?;
+        
+        // Indices
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_history_chat_user ON tbl_history_chat(user_id)").execute(pool).await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_history_detail_chat_id ON tbl_history_chat_detail(history_chat_id)").execute(pool).await?;
+
+        debug!("Chat history tables ensured");
+        Ok(())
+    }
+
+    /// Create (or get existing) chat session header
+    pub async fn create_chat_session(&self, user_id: i64, session_id: i64) -> Result<sqlx::types::Uuid> {
+        // Idempotent insert: if session_id exists, return its ID
+        let row = sqlx::query_scalar::<_, sqlx::types::Uuid>(
+            r#"
+            INSERT INTO tbl_history_chat (session_id, user_id)
+            VALUES ($1, $2)
+            ON CONFLICT (session_id) DO UPDATE SET session_id = EXCLUDED.session_id
+            RETURNING id
+            "#
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .fetch_one(self.pool.get_pool())
+        .await?;
+        
+        Ok(row)
+    }
+
+    /// Save a chat message
+    pub async fn save_chat_message(
+        &self, 
+        history_id: sqlx::types::Uuid, 
+        role: &str, 
+        message: &str
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO tbl_history_chat_detail (history_chat_id, role, message)
+            VALUES ($1, $2, $3)
+            "#
+        )
+        .bind(history_id)
+        .bind(role)
+        .bind(message)
+        .execute(self.pool.get_pool())
+        .await?;
+        
+        Ok(())
+    }
+    
+    /// Update/Upsert the documents used in this chat
+    pub async fn save_chat_docs(&self, history_id: sqlx::types::Uuid, doc_ids: &[i64]) -> Result<()> {
+        if doc_ids.is_empty() { return Ok(()); }
+        
+        // Check if exists
+        let exists = sqlx::query_scalar::<_, i32>(
+            "SELECT 1 FROM tbl_history_chat_doc WHERE history_chat_id = $1 LIMIT 1"
+        )
+        .bind(history_id)
+        .fetch_optional(self.pool.get_pool())
+        .await?;
+        
+        if exists.is_some() {
+            sqlx::query(
+                "UPDATE tbl_history_chat_doc SET doc_ids = $2 WHERE history_chat_id = $1"
+            )
+            .bind(history_id)
+            .bind(doc_ids)
+            .execute(self.pool.get_pool())
+            .await?;
+        } else {
+            sqlx::query(
+                "INSERT INTO tbl_history_chat_doc (history_chat_id, doc_ids) VALUES ($1, $2)"
+            )
+            .bind(history_id)
+            .bind(doc_ids)
+            .execute(self.pool.get_pool())
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Get active documents for a session (Implicit Context from DB)
+    pub async fn get_session_active_docs(&self, session_id: i64) -> Result<Vec<i64>> {
+        // Find history_id for session
+        let history_id = sqlx::query_scalar::<_, sqlx::types::Uuid>(
+            "SELECT id FROM tbl_history_chat WHERE session_id = $1"
+        )
+        .bind(session_id)
+        .fetch_optional(self.pool.get_pool())
+        .await?;
+
+        if let Some(hid) = history_id {
+            // Get doc_ids
+            let ids = sqlx::query_scalar::<_, Vec<i64>>(
+                "SELECT doc_ids FROM tbl_history_chat_doc WHERE history_chat_id = $1"
+            )
+            .bind(hid)
+            .fetch_optional(self.pool.get_pool())
+            .await?;
+            
+            return Ok(ids.unwrap_or_default());
+        }
+        
+        Ok(vec![])
+    }
+
+    /// Get ALL chunks for specific documents (for Deep Scan)
+    pub async fn get_chunks_by_document_ids(
+        &self,
+        document_ids: &[i64],
+    ) -> Result<Vec<DocumentChunk>> {
+        debug!("Fetching chunks for document_ids: {:?}", document_ids);
+        let chunks = sqlx::query_as::<_, DocumentChunk>(
+            r#"
+            SELECT 
+                c.id as chunk_id,
+                c.document_id,
+                d."DocumentTitle" as document_title,
+                c.content,
+                1.0::float4 as similarity,
+                c.chunk_index,
+                NULL::int as page_number
+            FROM rag_document_chunks c
+            JOIN "TblDocuments" d ON d."Id" = c.document_id
+            WHERE c.document_id = ANY($1)
+            ORDER BY c.document_id, c.chunk_index ASC
+            "#
+        )
+        .bind(document_ids)
+        .fetch_all(self.pool.get_pool())
+        .await?;
+
+        if chunks.is_empty() && !document_ids.is_empty() {
+             warn!("No chunks found for document_ids: {:?}. Checking processing status...", document_ids);
+             if let Some(&first_id) = document_ids.first() {
+                 let status = sqlx::query_scalar::<_, String>(
+                     "SELECT status FROM rag_document_processing WHERE document_id = $1"
+                 )
+                 .bind(first_id as i32)
+                 .fetch_optional(self.pool.get_pool())
+                 .await
+                 .unwrap_or_default();
+                 
+                 if let Some(s) = status {
+                      warn!("Document {} status is: '{}'. (If 'completed' but no chunks -> Chunking failed/Empty file)", first_id, s);
+                 } else {
+                      warn!("Document {} not found in processing table. (Worker might not have picked it up)", first_id);
+                 }
+             }
+        }
+
+        Ok(chunks)
     }
 }

@@ -47,7 +47,7 @@ impl ChatMessage {
 pub type SessionId = i64;
 
 /// Chat request payload
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ChatRequest {
     pub user_id: i64,
     pub session_id: SessionId,

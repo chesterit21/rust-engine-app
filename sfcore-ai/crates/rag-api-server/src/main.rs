@@ -78,6 +78,10 @@ async fn main() -> Result<()> {
     repository.ensure_processing_table().await?;
     repository.ensure_indices().await?;
     info!("✅ Repository and tables initialized");
+    
+    // Ensure chat history tables (NEW)
+    repository.ensure_chat_history_tables().await?;
+    info!("✅ Chat history tables ensured");
 
     // Initialize Activity Logger
     let logger = ActivityLogger::new(
@@ -130,7 +134,7 @@ async fn main() -> Result<()> {
     info!("✅ Conversation manager initialized");
 
     // Initialize EventBus
-    let event_bus = Arc::new(EventBus::new(1024));
+    let event_bus = Arc::new(EventBus::new(4096)); // Increased capacity to prevent dropped events
     info!("✅ EventBus initialized");
     
     // Initialize security

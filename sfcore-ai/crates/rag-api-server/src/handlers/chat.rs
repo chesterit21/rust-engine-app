@@ -25,7 +25,12 @@ pub async fn chat_stream_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ChatRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (axum::http::StatusCode, String)> {
-    info!(?req, "Incoming chat request");
+    // Log full payload as JSON for debugging
+    if let Ok(json_payload) = serde_json::to_string(&req) {
+         info!("Incoming chat payload: {}", json_payload);
+    } else {
+         info!(?req, "Incoming chat request (failed to serialize json)");
+    }
 
     // Validate request
     if req.message.trim().is_empty() {

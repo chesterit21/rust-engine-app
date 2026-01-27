@@ -462,4 +462,142 @@ impl RetrievalProvider for RagService {
     async fn get_document_overview(&self, document_id: i32, chunk_limit: i32) -> Result<DocumentOverview> {
         self.repository.get_document_overview(document_id, chunk_limit).await
     }
+
+    async fn persist_chat_event(
+        &self, 
+        user_id: i64, 
+        session_id: i64, 
+        role: &str, 
+        message: &str, 
+        doc_ids: Option<Vec<i64>>
+    ) -> Result<()> {
+        // 1. Ensure Session Header
+        let history_id = self.repository.create_chat_session(user_id, session_id).await?;
+        
+        // 2. Save Message
+        self.repository.save_chat_message(history_id, role, message).await?;
+        
+        // 3. Update Docs Used (if any)
+        if let Some(ids) = doc_ids {
+            self.repository.save_chat_docs(history_id, &ids).await?;
+        }
+        
+        Ok(())
+    }
+
+    async fn persist_session_documents(
+        &self,
+        user_id: i64,
+        session_id: i64,
+        doc_ids: Vec<i64>
+    ) -> Result<()> {
+        if doc_ids.is_empty() {
+            return Ok(());
+        }
+        
+        // 1. Ensure Session Header
+        let history_id = self.repository.create_chat_session(user_id, session_id).await?;
+        
+        // 2. Update Docs Used
+        self.repository.save_chat_docs(history_id, &doc_ids).await?;
+        
+        Ok(())
+    }
+
+    async fn get_session_active_docs(&self, session_id: i64) -> Result<Vec<i64>> {
+        self.repository.get_session_active_docs(session_id).await
+    }
+
+    async fn fetch_all_chunks(&self, doc_ids: &[i64]) -> Result<Vec<RetrievalChunk>> {
+        let chunks = self.repository.get_chunks_by_document_ids(doc_ids).await?;
+        
+        Ok(chunks.into_iter().map(|c| RetrievalChunk {
+            chunk_id: c.chunk_id,
+            document_id: c.document_id as i64,
+            document_title: Some(c.document_title),
+            content: c.content,
+            similarity: 1.0, 
+        }).collect())
+    }
+
+    async fn fetch_chunks_from_file_fallback(&self, doc_id: i64) -> Result<Vec<RetrievalChunk>> {
+        info!("Executing Direct Read Fallback for doc_id: {}", doc_id);
+        
+        // 1. Get File Path from DB
+        #[derive(sqlx::FromRow)]
+        struct DocPath {
+            file_path: String,
+            title: String,
+        }
+         
+        let doc_info = sqlx::query_as::<_, DocPath>(
+            r#"SELECT "DocumentFilePath" as file_path, "DocumentFileName" as title FROM "TblDocumentFiles" WHERE "DocumentID" = $1"#
+        )
+        .bind(doc_id as i32)
+        .fetch_optional(self.repository.pool.get_pool())
+        .await?;
+         
+        let (path_str, title) = match doc_info {
+            Some(d) => (d.file_path, d.title),
+            None => anyhow::bail!("Document {} not found in DB", doc_id),
+        };
+        
+        // 2. Read File Content (Robustly)
+        let path_buf = std::path::PathBuf::from(&path_str);
+        if !path_buf.exists() {
+             anyhow::bail!("File not found on disk: {}", path_str);
+        }
+
+        // Strategy: Loop/Retry mechanism as requested
+        // Attempt 1: Proper Parsing (DocumentParser) - supports PDF, DOCX, etc.
+        // Attempt 2: Lossy Text Read (Fallback for binary-ish text)
+        
+        let content_result = tokio::task::spawn_blocking(move || {
+            // Attempt 1: Use DocumentParser
+            match crate::document::parser::DocumentParser::parse(&path_buf) {
+                Ok(parsed) => Ok(parsed.content),
+                Err(e) => {
+                    warn!("Attempt 1 (Parser) failed for {}: {}. Retrying with Lossy Read...", path_buf.display(), e);
+                    
+                    // Attempt 2: Lossy Read (Force read as text)
+                    match std::fs::read(&path_buf) {
+                        Ok(bytes) => {
+                            let lossy = String::from_utf8_lossy(&bytes).to_string();
+                            // If > 70% "unknown" chars, maybe abort? But let's return what we have
+                            Ok(lossy)
+                        }
+                        Err(e2) => Err(anyhow::anyhow!("All attempts failed. Parser: {}. Read: {}", e, e2)),
+                    }
+                }
+            }
+        }).await?;
+
+        let content = content_result?;
+            
+        // 3. Chunking (Simple)
+        let chunk_size = 1500;
+        let mut chunks = Vec::new();
+        let mut current_chunk = String::new();
+        
+        for line in content.lines() {
+             if current_chunk.len() + line.len() > chunk_size {
+                 chunks.push(current_chunk.trim().to_string());
+                 current_chunk = String::new();
+             }
+             current_chunk.push_str(line);
+             current_chunk.push('\n');
+        }
+        if !current_chunk.is_empty() {
+            chunks.push(current_chunk.trim().to_string());
+        }
+        
+        // 4. Map to RetrievalChunk
+        Ok(chunks.into_iter().enumerate().map(|(i, text)| RetrievalChunk {
+            chunk_id: -(i as i64), // Negative ID to indicate temporary/fallback
+            document_id: doc_id,
+            document_title: Some(title.clone()),
+            content: text,
+            similarity: 1.0,
+        }).collect())
+    }
 }
