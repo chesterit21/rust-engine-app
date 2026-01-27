@@ -159,7 +159,7 @@ async fn main() -> Result<()> {
         rag_service: rag_service.clone(),
         llm_service: llm_service.clone(),
         conversation_manager,
-        settings,
+        settings: settings.clone(),
         document_service,
         document_auth,
         ip_whitelist,
@@ -167,17 +167,7 @@ async fn main() -> Result<()> {
         event_bus,
         limiters, // NEW
     };
-        embedding_service: embedding_service.clone(),
-        rag_service: rag_service.clone(),
-        llm_service: llm_service.clone(),
-        conversation_manager: conversation_manager.clone(),
-        settings: settings.clone(),
-        document_service: document_service.clone(),
-        document_auth: document_auth.clone(),
-        ip_whitelist: ip_whitelist.clone(),
-        header_validator: header_validator.clone(),
-        event_bus: event_bus.clone(),
-    };
+
 
     // Build router
     let app = build_router(Arc::new(app_state));

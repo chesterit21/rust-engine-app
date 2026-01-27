@@ -287,7 +287,7 @@ impl RagService {
                 doc.doc_title,
                 doc.avg_similarity
             );
-            let header_len = context.len() - header_start;
+            let _header_len = context.len() - header_start;
             
             // Estimate tokens just for the added part
             // Note: optimization - we could estimate based on chars, but stick to tokenizer for correctness first

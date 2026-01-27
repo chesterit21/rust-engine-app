@@ -425,7 +425,7 @@ impl ConversationManager {
                      delta: "Silakan pilih atau upload dokumen terlebih dahulu agar saya dapat menjawab pertanyaan Anda berdasarkan konteks dokumen.".to_string() 
                  };
                  yield ChatStreamChunk::Done { request_id: request_id.clone() };
-                 return Ok(Box::pin(stream));
+                 return;
             }
 
             // === EMBEDDING (Only if not metadata) ===
