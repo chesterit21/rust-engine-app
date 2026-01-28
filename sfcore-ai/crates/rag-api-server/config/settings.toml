@@ -29,9 +29,15 @@ pool_timeout_seconds = 30
 [gemini]
 enabled = false
 api_key = "[ENCRYPTION_KEY]"
-model = "gemini-1.5-flash"
+model = "models/gemini-2.5-flash-lite-preview-09-2025"
 embedding_model = "text-embedding-004"
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+#*List Of Model Gemini *#
+# models/gemini-2.5-pro - models/gemini-2.5-flash 
+# models/gemini-2.5-flash-lite - models/gemini-pro-latest
+# models/gemini-flash-lite-latest - models/gemini-flash-latest - models/gemma-3-27b-it
+# models/gemini-2.0-flash-lite - models/gemini-2.0-flash-lite-001  - models/gemini-2.0-flash
 
 # ==========================================
 # KONFIGURASI STANDAR (LEGACY / LOCAL)
@@ -52,10 +58,23 @@ retrieval_top_k = 5
 chunk_size = 1200
 chunk_overlap_percentage = 0.1
 rerank_enabled = false
-max_context_length = 1000000
-max_context_tokens = 1000000
-deep_scan_batch_tokens = 64000
+
+# Gemini set 1000000, Lokal set = 12000
+max_context_length = 12000
+max_context_tokens = 12000
+
+# Gemini set 64000, Lokal set = 4000
+deep_scan_batch_tokens = 4000
 document_path = "C:/DMS/uploads/"
+
+
+[limits]
+embedding_concurrency = 5
+db_search_concurrency = 20
+llm_generate_concurrency = 5
+llm_stream_concurrency = 5
+acquire_timeout_ms = 60000
+embedding_batch_size = 10
 
 [prompts]
 main_system_prompt = """
@@ -88,11 +107,3 @@ User Query: "{{QUERY}}"
 Pilih chunk ID yang relevan dari daftar di bawah.
 Output JSON: {"relevant_chunk_ids": [1, 2, ...]}
 """
-
-[limits]
-embedding_concurrency = 5
-db_search_concurrency = 20
-llm_generate_concurrency = 5
-llm_stream_concurrency = 5
-acquire_timeout_ms = 60000
-embedding_batch_size = 10

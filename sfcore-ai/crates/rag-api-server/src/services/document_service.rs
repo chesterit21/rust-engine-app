@@ -242,7 +242,7 @@ impl DocumentService {
                 vec![vec![0.0; dim]; texts.len()]
             }
         };
-        debug!("Generated {} embeddings", embeddings.len());
+        // debug!("Generated {} embeddings", embeddings.len());
         
         // 5. Build chunk data
         report_progress(0.8, "Preparing chunks for database...".to_string(), "saving".to_string());
