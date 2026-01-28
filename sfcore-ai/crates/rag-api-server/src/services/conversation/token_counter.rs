@@ -6,17 +6,24 @@ use super::types::TokenCount;
 pub struct TokenCounter;
 
 impl TokenCounter {
+    pub fn new() -> Self {
+        Self
+    }
+
     pub fn count_text(text: &str) -> usize {
         if text.is_empty() {
             return 0;
         }
 
         let char_count = text.graphemes(true).count();
-        let mut rng = rand::thread_rng();
-        // Simple estimation: avg 2.5 chars per token
-        let chars_per_token = if rng.gen_bool(0.5) { 2 } else { 3 };
-        
-        ((char_count + chars_per_token - 1) / chars_per_token).max(1)
+        // Deterministic & Conservative Estimation
+        // average english word is ~4 chars. 1 token ~= 4 chars (openai).
+        // BUT code/technical text can be dense.
+        // For safety/strictness: assume 1 token = 2.5 chars.
+        // count = chars / 2.5  =>  chars * 0.4
+        // To be integer friendly: (chars * 2) / 5
+        let count = (char_count * 2) / 5;
+        count.max(1)
     }
 
     pub fn count_messages(messages: &[ChatMessage]) -> usize {

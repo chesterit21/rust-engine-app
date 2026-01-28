@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use std::pin::Pin;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
+use chrono::Local; // NEW
 
 use crate::database::models::{DocumentMetadata, DocumentOverview};
 use crate::logging::{ActivityLog, ActivityLogger, ActivityStatus, ActivityType};
@@ -37,6 +38,9 @@ pub enum ChatStreamChunk {
     },
     Done {
         request_id: String,
+    },
+    Error {
+        message: String,
     },
 }
 
@@ -192,6 +196,11 @@ pub trait LlmProvider: Send + Sync {
     async fn summarize_chunks(&self, chunks: &[RetrievalChunk], query: &str) -> Result<String>;
 }
 
+// Helper struct for Deep Scan results
+struct DeepScanResult {
+    relevant_ids: HashSet<i64>,
+}
+
 /// Chunk result from retrieval
 #[derive(Debug, Clone)]
 pub struct RetrievalChunk {
@@ -203,32 +212,51 @@ pub struct RetrievalChunk {
 }
 
 pub struct ConversationManager {
-    cache: ConversationCache,
-    context_builder: ContextBuilder,
+    // Services
     embedding_provider: Box<dyn EmbeddingProvider>,
-    retrieval_provider: Box<dyn RetrievalProvider>,
-    llm_provider: Box<dyn LlmProvider>,
+    retrieval_provider: Box<dyn RetrievalProvider>, // Corrected field name
+    llm_provider: Box<dyn LlmProvider>,       // Corrected field name
     logger: ActivityLogger,
     stream_enabled: bool,
+    main_system_prompt: String,
+    deep_scan_system_prompt: String, // NEW
+    
+    // Config
+    rag_config: crate::config::RagConfig,
+    
+    // Components
+    context_builder: ContextBuilder,
+    verifier: LlmVerifier,
+    token_counter: TokenCounter,
+    
+    // State
+    cache: ConversationCache,
 }
 
 impl ConversationManager {
     pub fn new(
         embedding_provider: Box<dyn EmbeddingProvider>,
-        retrieval_provider: Box<dyn RetrievalProvider>,
-        llm_provider: Box<dyn LlmProvider>,
+        retrieval_provider: Box<dyn RetrievalProvider>, // Corrected arg name
+        llm_provider: Box<dyn LlmProvider>,       // Corrected arg name
         logger: ActivityLogger,
         stream_enabled: bool,
-        system_prompt: String,
+        main_system_prompt: String,
+        deep_scan_system_prompt: String, // NEW
+        rag_config: crate::config::RagConfig,
     ) -> Self {
         Self {
-            cache: ConversationCache::new(),
-            context_builder: ContextBuilder::new(system_prompt),
             embedding_provider,
             retrieval_provider,
             llm_provider,
             logger,
             stream_enabled,
+            main_system_prompt,
+            deep_scan_system_prompt,
+            rag_config,
+            context_builder: ContextBuilder::default(),
+            verifier: LlmVerifier::new(3),
+            token_counter: TokenCounter::new(),
+            cache: ConversationCache::new(),
         }
     }
 
@@ -404,6 +432,15 @@ impl ConversationManager {
         let mut effective_doc_ids = if final_doc_ids.is_empty() { None } else { Some(final_doc_ids) };
         let is_explicit_context = effective_doc_ids.is_some();
 
+        // 1b. Persist Explicit Context to DB immediately
+        if let Some(ids) = &effective_doc_ids {
+             if let Err(e) = self.retrieval_provider.persist_session_documents(user_id, session_id, ids.clone()).await {
+                 tracing::warn!("Failed to persist explicit session documents: {}", e);
+             } else {
+                 tracing::info!("Persisted {} explicit documents for session {}", ids.len(), session_id);
+             }
+        }
+
         // 2. If NO explicit doc IDs, check if Session has attached documents (Implicit Context)
         if effective_doc_ids.is_none() {
             // Updated per user request: Use DB persistence instead of memory cache
@@ -507,14 +544,30 @@ impl ConversationManager {
             if planner_intent != PlannerIntent::Metadata {
                 yield ConversationManager::stage_event(&request_id, "embed", 15, None);
                 
-                query_embedding = Some(
-                    manager.embedding_provider
-                        .embed(&message)
-                        .await
-                        .context("Failed to generate embedding")?
-                );
+                query_embedding = match manager.embedding_provider.embed(&message).await {
+                    Ok(emb) => Some(emb),
+                    Err(e) => {
+                         // Fallback Strategy:
+                         // If we have specific documents (implicit or explicit), we can fall back to Deep Scan (LLM Check)
+                         // which doesn't strictly need vector embedding of the query.
+                         if effective_doc_ids.is_some() {
+                             warn!("Query Embedding failed: {}. Proceeding with Deep Scan fallback (No Vector Search).", e);
+                             yield ConversationManager::stage_event(&request_id, "embed", 20, Some("Embedding failed, switch to Deep Scan...".to_string()));
+                             None
+                         } else {
+                             // If no documents context, we can't do anything without vector search over full corpus
+                             error!("Query Embedding failed and no document context: {}", e);
+                             // Yield error chunk so frontend knows
+                             yield ChatStreamChunk::Error { message: format!("Query embedding failed: {}. Please try again later.", e) };
+                             yield ChatStreamChunk::Done { request_id: request_id.clone() };
+                             return;
+                         }
+                    }
+                };
                 
-                yield ConversationManager::stage_event(&request_id, "embed", 25, Some("Siap cari konteks…".to_string()));
+                if query_embedding.is_some() {
+                     yield ConversationManager::stage_event(&request_id, "embed", 25, Some("Siap cari konteks…".to_string()));
+                }
             } else {
                  yield ConversationManager::stage_event(&request_id, "embed", 20, Some("Skip embedding (metadata only)".to_string()));
             }
@@ -603,11 +656,43 @@ impl ConversationManager {
                         }
                     }
                     
-                    // === DEEP SCAN LOOP (Optimized) ===
+                    // === DEEP SCAN LOOP (Optimized with Progress Streaming) ===
                     // Ask LLM to filter irrelevant chunks and return specific Chunk IDs
                     yield ConversationManager::stage_event(&request_id, "scan", 50, Some(format!("Analisis {} chunks...", all_chunks.len())));
                     
-                    let relevant_ids = manager.deep_scan_process(&all_chunks, &message, &request_id).await?;
+                    // Create channel for progress updates
+                    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+                    let manager_clone = self.clone();
+                    let all_chunks_clone = all_chunks.clone();
+                    let message_clone = message.clone();
+                    let request_id_clone = request_id.clone();
+                    
+                    // Spawn Deep Scan task
+                    let scan_handle = tokio::spawn(async move {
+                        manager_clone.deep_scan_process(&all_chunks_clone, &message_clone, &request_id_clone, Some(tx)).await
+                    });
+
+                    // Consume progress events while waiting for result
+                    while let Some(chunk) = rx.recv().await {
+                         yield chunk;
+                    }
+                    
+                    // Await result
+                    let relevant_ids = match scan_handle.await {
+                        Ok(Ok(ids)) => ids,
+                        Ok(Err(e)) => {
+                            error!("Deep Scan failed: {}", e);
+                            HashSet::new() // Fallback to empty -> return generic error later?
+                        },
+                        Err(e) => {
+                             error!("Deep Scan task panicked: {}", e);
+                             HashSet::new()
+                        }
+                    };
+                    
+                    if relevant_ids.is_empty() {
+                         warn!("Deep Scan returned 0 relevant IDs. Assuming no relevant content.");
+                    }
                     
                     // Filter chunks based on LLM Selection
                     // If relevant_ids is empty (model found nothing), use ALL chunks as fallback?
@@ -708,8 +793,47 @@ impl ConversationManager {
 
                 yield ConversationManager::stage_event(&request_id, "compose", 75, None);
 
+                // Inject Current DateTime
+                let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                let raw_instruction = manager.context_builder.base_instruction();
+                
+                // Inject Document List
+                let mut doc_list_str = String::from("Global (Semua Dokumen)");
+                if let Some(ids) = &effective_doc_ids {
+                    let mut titles = Vec::new();
+                    for &id in ids {
+                         // Best effort metadata fetch
+                         if let Ok(meta) = manager.retrieval_provider.get_document_metadata(id as i32).await {
+                             titles.push(format!("- {} (ID: {})", meta.title, id));
+                         } else {
+                             titles.push(format!("- Unknown Document (ID: {})", id));
+                         }
+                    }
+                    if !titles.is_empty() {
+                        doc_list_str = titles.join("\n");
+                    }
+                }
+
+                let params_instruction = raw_instruction
+                    .replace("{{CURRENT_DATETIME}}", &current_time)
+                    .replace("{{DOC_LIST}}", &doc_list_str);
+                
+                // Fallback: If placeholders missing, prepend/append
+                let final_instruction = if !raw_instruction.contains("{{CURRENT_DATETIME}}") {
+                    format!("Saat ini: {}\n\nDokumen Aktif:\n{}\n\n{}", 
+                        current_time, 
+                        doc_list_str, 
+                        params_instruction
+                    )
+                } else if !raw_instruction.contains("{{DOC_LIST}}") {
+                     // Date was replaced, but Doc List wasn't
+                     format!("Dokumen Aktif:\n{}\n\n{}", doc_list_str, params_instruction)
+                } else {
+                    params_instruction
+                };
+
                 let enhanced_system = verifier.build_verification_prompt(
-                    manager.context_builder.base_instruction()
+                    &final_instruction
                 );
 
                 let mut llm_messages = vec![
@@ -809,6 +933,9 @@ impl ConversationManager {
             let total = deltas.len().max(1);
 
             for (i, ev) in deltas.into_iter().enumerate() {
+                // simulated typing delay for smooth UX
+                tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+                
                 // progress 92..99 selama mengetik
                 let p = 92 + (((i + 1) * 7) / total).min(7) as u8;
                 if i == 0 {
@@ -1166,24 +1293,49 @@ impl ConversationManager {
         chunks: &[RetrievalChunk],
         query: &str,
         request_id: &str,
+        progress_tx: Option<tokio::sync::mpsc::Sender<ChatStreamChunk>>,
     ) -> Result<HashSet<i64>> {
         if chunks.is_empty() {
             return Ok(HashSet::new());
         }
 
-        info!("Starting Deep Scan on {} chunks for query: {}", chunks.len(), query);
-        let mut relevant_ids = HashSet::new();
+        let total_chunks = chunks.len();
+        let estimated_total_tokens: usize = chunks.iter().map(|c| token_estimator::estimate_tokens(&c.content)).sum();
+
+        // SMART STRATEGY REMOVED (User requested strict sequential batching)
+        // We will process everything in strict batches of configured size (e.g., 20k-24k tokens).
         
-        // Token-Based Batching (Target ~22k tokens)
-        let MAX_BATCH_TOKENS = 8_000;
+        info!("Starting Deep Scan (Sequential Batching) on {} chunks for query: {}", chunks.len(), query);
+        let mut relevant_ids: HashSet<i64> = HashSet::new();
+        
+        // Token-Based Batching (Configured)
+        // Reserve 2000 tokens for System Prompt & Query Overhead
+        let config_limit = self.rag_config.deep_scan_batch_tokens.max(4000);
+        let max_batch_tokens = config_limit.saturating_sub(2000).max(1000); 
         let mut batch = Vec::new();
         let mut current_tokens = 0;
+        
+        // Calculate total batches for progress reporting (Approximation)
+        let estimated_total_tokens: usize = chunks.iter().map(|c| token_estimator::estimate_tokens(&c.content)).sum();
+        let estimated_batches = (estimated_total_tokens as f64 / max_batch_tokens as f64).ceil() as usize;
+        let mut processed_batches = 0;
 
-        for chunk in chunks {
+        for (i, chunk) in chunks.iter().enumerate() {
             let chunk_tokens = token_estimator::estimate_tokens(&chunk.content);
-            if current_tokens + chunk_tokens > MAX_BATCH_TOKENS {
+            
+            if current_tokens + chunk_tokens > max_batch_tokens { 
                 // Process current batch
                 if !batch.is_empty() {
+                    processed_batches += 1;
+                    if let Some(tx) = &progress_tx {
+                        let _ = tx.send(ConversationManager::stage_event(
+                            request_id, 
+                            "scan", 
+                            50 + ((processed_batches as f32 / (estimated_batches + 1) as f32) * 30.0) as u8, // Progress 50-80%
+                            Some(format!("Menganalisis bagian {}/{}...", processed_batches, estimated_batches))
+                        )).await;
+                    }
+
                     let ids = self.process_deep_scan_batch(&batch, query, request_id).await?;
                     relevant_ids.extend(ids);
                     batch.clear();
@@ -1196,6 +1348,15 @@ impl ConversationManager {
 
         // Process remaining batch
         if !batch.is_empty() {
+            processed_batches += 1;
+            if let Some(tx) = &progress_tx {
+                let _ = tx.send(ConversationManager::stage_event(
+                    request_id, 
+                    "scan", 
+                    80, 
+                    Some(format!("Menganalisis bagian terakhir ({}/{})...", processed_batches, estimated_batches))
+                )).await;
+            }
             let ids = self.process_deep_scan_batch(&batch, query, request_id).await?;
             relevant_ids.extend(ids);
         }
@@ -1206,20 +1367,15 @@ impl ConversationManager {
     async fn process_deep_scan_batch(&self, batch: &[&RetrievalChunk], query: &str, request_id: &str) -> Result<Vec<i64>> {
         // Build context for this batch
         let mut context_text = String::new();
-        for (i, chunk) in batch.iter().enumerate() {
-            context_text.push_str(&format!("--- CHUNK ID: {} ---\n{}\n\n", chunk.chunk_id, chunk.content));
+        for (_i, chunk) in batch.iter().enumerate() {
+            let title = chunk.document_title.as_deref().unwrap_or("Untitled");
+            context_text.push_str(&format!(
+                "--- CHUNK ID: {} [DOC ID: {} - TITLE: {}] ---\n{}\n\n", 
+                chunk.chunk_id, chunk.document_id, title, chunk.content
+            ));
         }
 
-        let system_prompt = format!(
-            "Anda adalah asisten AI yang bertugas memilah informasi.\n\
-            Tugas Anda: Dari daftar chunk dokumen di bawah, pilih MANA SAJA yang relevan untuk menjawab pertanyaan user.\n\
-            User Query: \"{}\"\n\n\
-            Berikan jawaban DALAM FORMAT JSON SAJA:\n\
-            {{\"relevant_chunk_ids\": [123, 456, ...]}}\n\
-            Jika tidak ada yang relevan, kembalikan list kosong [].\n\
-            JANGAN menulis penjelasan apa pun.",
-            query
-        );
+        let system_prompt = self.deep_scan_system_prompt.replace("{{QUERY}}", query);
 
         let messages = vec![
             ChatMessage::system(system_prompt),

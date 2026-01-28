@@ -18,6 +18,8 @@ pub struct ChatCompletionRequest {
     pub max_tokens: usize,
     pub temperature: f32,
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 // Local response structs
@@ -88,11 +90,18 @@ impl LlmService {
             max_tokens: self.config.max_tokens,
             temperature: 0.7,
             stream: true,
+            model: self.config.model.clone(),
         };
         
-        let response = self
+        let mut request_builder = self
             .client
-            .post(&format!("{}/v1/chat/completions", self.config.base_url))
+            .post(&format!("{}/v1/chat/completions", self.config.base_url));
+            
+        if let Some(key) = &self.config.api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", key));
+        }
+
+        let response = request_builder
             .json(&request)
             .send()
             .await
@@ -204,11 +213,18 @@ impl LlmService {
             max_tokens,
             temperature,
             stream: false,
+            model: self.config.model.clone(),
         };
         
-        let response = self
+        let mut request_builder = self
             .client
-            .post(&format!("{}/v1/chat/completions", self.config.base_url))
+            .post(&format!("{}/v1/chat/completions", self.config.base_url));
+
+        if let Some(key) = &self.config.api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", key));
+        }
+
+        let response = request_builder
             .json(&request)
             .send()
             .await

@@ -91,6 +91,7 @@ pub async fn upload_handler(
         embedding_service,
         state.llm_service.clone(),
         &state.settings.rag,
+        &state.settings.limits, // Fix: Add missing argument
     );
     
     // 1. Create document record & save file (Sync)

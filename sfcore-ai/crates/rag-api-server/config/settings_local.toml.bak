@@ -1,0 +1,102 @@
+[server]
+host = "0.0.0.0"
+port = 8000
+max_connections = 1000
+
+[security]
+allowed_ips = [
+    "0.0.0.0/0",
+    "::/0",
+    "192.168.155.156",
+    "192.168.155.0/24",
+    "127.0.0.1",
+    "::1"
+]
+
+[security.custom_headers]
+app_id = "DMS-CLIENT-APP-2026"
+api_key = "SHUBA-APP-DMS-RAG"
+request_signature = "enabled"
+timestamp_tolerance = 3153600
+
+[database]
+url = "postgresql://postgres:P%40ssw0rd@localhost:6432/dms_demo?sslmode=disable"
+pool_max_size = 20
+pool_timeout_seconds = 30
+
+[embedding]
+model = "Qwen3-embedding-0.6B"
+base_url = "http://127.0.0.1:8081"
+dimension = 1024 # FIXED: Log shows server outputs 1024
+
+[llm]
+base_url = "http://127.0.0.1:8080"
+timeout_seconds = 600 # INCREASED: 5 mins was too short for Deep Scan
+max_tokens = 32000
+stream_response = true
+
+[rag]
+retrieval_top_k = 5
+chunk_size = 1200
+chunk_overlap_percentage = 0.1
+rerank_enabled = false
+max_context_length = 24920
+max_context_tokens = 32000
+deep_scan_batch_tokens = 6000 # REDUCED: 12k took >5 mins. 6k is faster & safer.
+document_path = "C:\\DMS\\uploads\\"
+
+[prompts]
+main_system_prompt = """
+Anda adalah asisten AI cerdas untuk Sistem Manajemen Dokumen.
+Waktu Server: {{CURRENT_DATETIME}}
+Dokumen Aktif:
+{{DOC_LIST}}
+
+Peran Anda adalah membantu pengguna memahami dan bekerja dengan dokumen mereka dengan:
+- Menjawab pertanyaan berdasarkan konteks dokumen yang diberikan
+- Memberikan informasi akurat dari dokumen yang diambil
+- Mengakui ketika informasi tidak tersedia dalam konteks
+
+Instruksi:
+- Analisis pertanyaan pengguna (yang akan ada di pesan berikutnya).
+- Ekstrak SEMUA informasi dari potongan-potongan di atas yang membantu menjawab pertanyaan.
+- Sintesiskan menjadi ringkasan yang jelas dan mudah di pahami serta terperinci/detil dan jangan terlalu kaku atau terlalu baku.
+- Jika potongan-potongan tersebut tidak berisi informasi yang relevan, nyatakan hal itu dengan jelas.
+- Jaga agar tanggapan tetap fokus dan relevan dengan pertanyaan pengguna
+
+PENTING:
+Di akhir tanggapan Anda, Anda HARUS mencantumkan judul dokumen yang Anda gunakan sebagai referensi.
+
+Format:
+Referensi:
+- [Judul Dokumen]
+"""
+context_extraction_system_prompt = """
+Konteks Dokumen:
+{{CHUNKS}}
+"""
+rag_query_system_prompt = """
+Anda adalah asisten AI yang membantu menjawab pertanyaan berdasarkan dokumen yang diberikan. Jawab pertanyaan dengan akurat berdasarkan konteks yang tersedia. Jika informasi tidak ada dalam konteks, katakan dengan jelas.
+
+{{CONTEXT}}
+"""
+
+deep_scan_system_prompt = """
+Anda adalah asisten AI yang bertugas memilah informasi.
+Tugas Anda: Dari daftar chunk dokumen di bawah, pilih MANA SAJA yang relevan untuk menjawab pertanyaan user.
+
+User Query: "{{QUERY}}"
+
+Berikan jawaban DALAM FORMAT JSON SAJA:
+{"relevant_chunk_ids": [123, 456, ...]}
+Jika tidak ada yang relevan, kembalikan list kosong [].
+JANGAN menulis penjelasan apa pun.
+"""
+
+[limits]
+embedding_concurrency = 1
+db_search_concurrency = 20
+llm_generate_concurrency = 2
+llm_stream_concurrency = 2
+acquire_timeout_ms = 360000 # INCREASED: 15s -> 60s to prevent workers failing under load
+embedding_batch_size = 8   # INCREASED: 2 -> 8 for better throughput

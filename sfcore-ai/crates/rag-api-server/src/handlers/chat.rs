@@ -92,6 +92,12 @@ pub async fn chat_stream_handler(
 
                                 yield Ok(Event::default().event("done").data(data));
                             }
+                            ChatStreamChunk::Error { message } => {
+                                let data = serde_json::to_string(&serde_json::json!({
+                                    "message": message
+                                })).unwrap_or_else(|_| "{}".to_string());
+                                yield Ok(Event::default().event("error").data(data));
+                            }
                         },
                         Err(e) => {
                             error!("Stream error: {}", e);

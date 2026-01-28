@@ -69,21 +69,28 @@ impl ActivityLogger {
 
     /// Log activity (non-blocking, fire-and-forget)
     pub fn log(&self, activity: ActivityLog) {
+        return; // HOTFIX: Disable logging due to DB slowness (15s insert time)
+        
         // Try to send, if queue full, drop with warning
+        /*
         if let Err(e) = self.sender.try_send(activity) {
             warn!("Failed to enqueue log (queue full?): {}", e);
-            // In production, you might want to increment a metric here
         }
+        */
     }
 
     /// Log activity async (waits if queue full, but doesn't block caller)
     pub fn log_async(&self, activity: ActivityLog) {
+        return; // HOTFIX: Disable logging
+        
+        /*
         let sender = self.sender.clone();
         tokio::spawn(async move {
             if let Err(e) = sender.send_async(activity).await {
                 error!("Failed to send log to queue: {}", e);
             }
         });
+        */
     }
 
     /// Worker loop - processes logs in batches

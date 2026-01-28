@@ -1,0 +1,24 @@
+{"timestamp":"2026-01-27T16:38:29.210299Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T16:38:29.212150Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T16:52:17.050038Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T16:52:17.050690Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:03:26.302387Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:03:26.303092Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:35:48.672324Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:35:48.672963Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:41:40.810800Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:41:40.811400Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:48:00.799041Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:48:00.799594Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:54:08.058440Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:54:08.059084Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:56:27.020020Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T17:56:27.020630Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T18:11:49.517672Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T18:11:49.518244Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T18:21:17.377763Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T18:21:17.378355Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T18:54:21.460621Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T18:54:21.461509Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T18:59:05.502848Z","level":"INFO","fields":{"message":"🚀 Starting RAG API Server with Conversation Memory..."},"target":"rag_api_server","threadId":"ThreadId(1)"}
+{"timestamp":"2026-01-27T18:59:05.503502Z","level":"INFO","fields":{"message":"✅ Configuration loaded"},"target":"rag_api_server","threadId":"ThreadId(1)"}

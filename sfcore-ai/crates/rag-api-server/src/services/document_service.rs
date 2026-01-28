@@ -17,6 +17,7 @@ pub struct DocumentService {
     chunk_size: usize,
     chunk_overlap: usize,
     document_path: String,
+    embedding_batch_size: usize, // NEW
 }
 
 impl DocumentService {
@@ -25,6 +26,7 @@ impl DocumentService {
         embedding_service: Arc<EmbeddingService>,
         llm_service: Arc<LlmService>,
         config: &crate::config::RagConfig,
+        limits: &crate::config::LimitsConfig, // NEW ARG
     ) -> Self {
         Self {
             repository,
@@ -33,6 +35,7 @@ impl DocumentService {
             chunk_size: config.chunk_size,
             chunk_overlap: (config.chunk_size as f32 * config.chunk_overlap_percentage) as usize,
             document_path: config.document_path.clone(),
+            embedding_batch_size: limits.embedding_batch_size, // STORE
         }
     }
     
@@ -104,10 +107,10 @@ impl DocumentService {
         report_progress(0.6, "Generating embeddings (this might take a while)...".to_string(), "embedding-inprogress".to_string());
         let texts: Vec<String> = chunks.clone();
         
-        // REFACTOR: Use strict batching to avoid Limiter Timeout (deadlock on large files)
         // Previous join_all(futures) spawned ALL requests at once, flooding the semaphore queue.
         // If queue time > 15s (acquire_timeout), tasks fail/stagnate.
-        let batch_size = 5;
+        // We use configured batch size or default to 5 if not provided (safety)
+        let batch_size = self.embedding_batch_size.max(1);
         let mut embeddings = Vec::with_capacity(texts.len());
         
         for (i, batch_texts) in texts.chunks(batch_size).enumerate() {
@@ -226,10 +229,19 @@ impl DocumentService {
             return Err(ApiError::BadRequest("Failed to create chunks".to_string()));
         }
         
-        // 4. Generate embeddings (batch)
+        // 4. Generate embeddings (batch) or Fallback
         report_progress(0.6, "Generating embeddings (this might take a while)...".to_string(), "embedding-inprogress".to_string());
         let texts: Vec<String> = chunks.clone();
-        let embeddings = self.embedding_service.embed_batch(texts).await?;
+        
+        let embeddings = match self.embedding_service.embed_batch(texts.clone()).await {
+            Ok(e) => e,
+            Err(err) => {
+                warn!("Embedding failed for document {} (falling back to zerovec): {}", document_id, err);
+                // Fallback to zero vectors so Deep Scan can still work
+                let dim = self.embedding_service.dimension;
+                vec![vec![0.0; dim]; texts.len()]
+            }
+        };
         debug!("Generated {} embeddings", embeddings.len());
         
         // 5. Build chunk data

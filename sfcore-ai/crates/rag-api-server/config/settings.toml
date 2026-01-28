@@ -1,49 +1,98 @@
 [server]
 host = "0.0.0.0"
-port = 3000
+port = 8000
 max_connections = 1000
 
 [security]
-allowed_ips = ["127.0.0.1", "::1"]
+allowed_ips = [
+    "0.0.0.0/0",
+    "::/0",
+    "127.0.0.1"
+]
 
 [security.custom_headers]
-app_id = "X-App-ID"
-api_key = "X-Api-Key"
-request_signature = "X-Request-Signature"
-timestamp_tolerance = 300
+app_id = "DMS-CLIENT-APP-2026"
+api_key = "SHUBA-APP-DMS-RAG"
+request_signature = "enabled"
+timestamp_tolerance = 3153600
 
 [database]
-url = "postgres://postgres:postgres@localhost:5432/rag_db"
+url = "postgresql://postgres:P%40ssw0rd@localhost:6432/dms_demo?sslmode=disable"
 pool_max_size = 20
 pool_timeout_seconds = 30
 
+# ==========================================
+# KONFIGURASI GEMINI (BARU!)
+# ==========================================
+# Isi API KEY di sini untuk mengaktifkan Gemini secara global.
+# Jika ini diisi, settingan [embedding] dan [llm] di bawah akan DI-OVERRIDE otomatis.
+[gemini]
+enabled = false
+api_key = "[ENCRYPTION_KEY]"
+model = "gemini-1.5-flash"
+embedding_model = "text-embedding-004"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+# ==========================================
+# KONFIGURASI STANDAR (LEGACY / LOCAL)
+# ==========================================
 [embedding]
-model = "text-embedding-3-small"
+model = "Qwen3-embedding-0.6B"
 base_url = "http://127.0.0.1:8081"
-dimension = 512
+dimension = 1024 # Note: Jika Gemini aktif, ini akan otomatis jadi 768
 
 [llm]
-base_url = "http://127.0.0.1:8081"
-timeout_seconds = 300
-max_tokens = 2000
+base_url = "http://127.0.0.1:8080"
+timeout_seconds = 60
+max_tokens = 32000
 stream_response = true
 
 [rag]
 retrieval_top_k = 5
-chunk_size = 512
+chunk_size = 1200
 chunk_overlap_percentage = 0.1
 rerank_enabled = false
-max_context_length = 8192
-max_context_tokens = 20000
-document_path = "/home/sfcore/sfcore-dms-docs"
+max_context_length = 1000000
+max_context_tokens = 1000000
+deep_scan_batch_tokens = 64000
+document_path = "C:/DMS/uploads/"
 
 [prompts]
-main_system_prompt = "You are a helpful assistant."
-context_extraction_system_prompt = "Context: {{CHUNKS}}"
+main_system_prompt = """
+Anda adalah asisten AI cerdas untuk Sistem Manajemen Dokumen.
+Waktu Server: {{CURRENT_DATETIME}}
+Dokumen Aktif:
+{{DOC_LIST}}
+
+Instruksi:
+- Jawab pertanyaan berdasarkan konteks dokumen.
+- Gunakan Bahasa Indonesia yang natural dan jelas.
+- Jika tidak ada info di dokumen, katakan jujur.
+
+Referensi:
+- [Judul Dokumen]
+"""
+
+context_extraction_system_prompt = """
+Konteks Dokumen:
+{{CHUNKS}}
+"""
+
+rag_query_system_prompt = """
+Anda adalah asisten AI RAG. Jawab berdasarkan konteks berikut:
+{{CONTEXT}}
+"""
+
+deep_scan_system_prompt = """
+User Query: "{{QUERY}}"
+Pilih chunk ID yang relevan dari daftar di bawah.
+Output JSON: {"relevant_chunk_ids": [1, 2, ...]}
+"""
 
 [limits]
-embedding_concurrency = 8
+embedding_concurrency = 5
 db_search_concurrency = 20
-llm_generate_concurrency = 4
-llm_stream_concurrency = 2
-acquire_timeout_ms = 15000
+llm_generate_concurrency = 5
+llm_stream_concurrency = 5
+acquire_timeout_ms = 60000
+embedding_batch_size = 10

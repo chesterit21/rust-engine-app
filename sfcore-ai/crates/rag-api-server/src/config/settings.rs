@@ -12,7 +12,17 @@ pub struct Settings {
     pub llm: LlmConfig,
     pub rag: RagConfig,
     pub prompts: PromptsConfig,
-    pub limits: LimitsConfig, // NEW
+    pub limits: LimitsConfig,
+    pub gemini: Option<GeminiConfig>, // NEW
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GeminiConfig {
+    pub enabled: bool, // NEW
+    pub api_key: String,
+    pub model: Option<String>,
+    pub embedding_model: Option<String>,
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -22,6 +32,7 @@ pub struct LimitsConfig {
     pub llm_generate_concurrency: usize,
     pub llm_stream_concurrency: usize,
     pub acquire_timeout_ms: u64,
+    pub embedding_batch_size: usize, // NEW
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -57,6 +68,7 @@ pub struct EmbeddingConfig {
     pub model: String,
     pub base_url: String,
     pub dimension: usize,
+    pub api_key: Option<String>, // NEW
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -65,6 +77,8 @@ pub struct LlmConfig {
     pub timeout_seconds: u64,
     pub max_tokens: usize,
     pub stream_response: bool,
+    pub api_key: Option<String>,
+    pub model: Option<String>, // NEW: Required for Gemini/OpenAI
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -74,7 +88,8 @@ pub struct RagConfig {
     pub chunk_overlap_percentage: f32,
     pub rerank_enabled: bool,
     pub max_context_length: usize,
-    pub max_context_tokens: usize,  // NEW FIELD - Token-based limit
+    pub max_context_tokens: usize,
+    pub deep_scan_batch_tokens: usize, // NEW
     pub document_path: String,
 }
 
@@ -82,6 +97,8 @@ pub struct RagConfig {
 pub struct PromptsConfig {
     pub main_system_prompt: String,
     pub context_extraction_system_prompt: String,
+    pub rag_query_system_prompt: String, // NEW
+    pub deep_scan_system_prompt: String, // NEW
 }
 
 impl Settings {

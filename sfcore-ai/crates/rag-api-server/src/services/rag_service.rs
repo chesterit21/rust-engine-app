@@ -574,21 +574,23 @@ impl RetrievalProvider for RagService {
 
         let content = content_result?;
             
-        // 3. Chunking (Simple)
-        let chunk_size = 1500;
+        // 3. Chunking (Robust Char-Based)
+        let chunk_size = self.config.chunk_size; // Use configured size (e.g. 4000)
         let mut chunks = Vec::new();
-        let mut current_chunk = String::new();
         
-        for line in content.lines() {
-             if current_chunk.len() + line.len() > chunk_size {
-                 chunks.push(current_chunk.trim().to_string());
-                 current_chunk = String::new();
+        let chars: Vec<char> = content.chars().collect();
+        let total_chars = chars.len();
+        let mut start = 0;
+        
+        while start < total_chars {
+             let end = std::cmp::min(start + chunk_size, total_chars);
+             let chunk_content: String = chars[start..end].iter().collect();
+             
+             if !chunk_content.trim().is_empty() {
+                 chunks.push(chunk_content);
              }
-             current_chunk.push_str(line);
-             current_chunk.push('\n');
-        }
-        if !current_chunk.is_empty() {
-            chunks.push(current_chunk.trim().to_string());
+             
+             start += chunk_size;
         }
         
         // 4. Map to RetrievalChunk

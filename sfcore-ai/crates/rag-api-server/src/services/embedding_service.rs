@@ -35,14 +35,16 @@ use std::time::Instant;
 pub struct EmbeddingService {
     client: Client,
     base_url: String,
-    dimension: usize,
+    pub dimension: usize,
     model_name: String,
     cache: Arc<RwLock<HashMap<String, Vec<f32>>>>, // Cache embeddings
     limiters: Arc<Limiters>, // NEW
+    batch_size: usize, // NEW
+    api_key: Option<String>, // NEW
 }
 
 impl EmbeddingService {
-    pub fn new(llm_base_url: String, config: EmbeddingConfig, limiters: Arc<Limiters>) -> Self {
+    pub fn new(llm_base_url: String, config: EmbeddingConfig, limiters: Arc<Limiters>, batch_size: usize) -> Self {
         Self {
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(60))
@@ -53,6 +55,8 @@ impl EmbeddingService {
             model_name: config.model,
             cache: Arc::new(RwLock::new(HashMap::new())),
             limiters, // NEW
+            batch_size,
+            api_key: config.api_key,
         }
     }
     
@@ -93,9 +97,14 @@ impl EmbeddingService {
         
         // Use standard /v1/embeddings endpoint
         let url = format!("{}/v1/embeddings", self.base_url);
-        let response = self
-            .client
-            .post(&url)
+        
+        let mut request_builder = self.client.post(&url);
+        
+        if let Some(key) = &self.api_key {
+            request_builder = request_builder.header("Authorization", format!("Bearer {}", key));
+        }
+
+        let response = request_builder
             .json(&request)
             .send()
             .await
@@ -110,10 +119,19 @@ impl EmbeddingService {
         }
         
         // Parse standard OpenAI response format
-        let response_body: EmbeddingResponse = response
-            .json()
-            .await
-            .context("Failed to parse embedding response (expected OpenAI format)")?;
+        let body_text = response.text().await.context("Failed to read response body")?;
+        
+        // DEBUG: Log the raw response to see what Llama Server is sending
+        // Truncate if too long to avoid huge logs, but keep enough to see structure
+        let debug_body = if body_text.len() > 500 {
+            format!("{}...", &body_text[..500]) 
+        } else {
+            body_text.clone()
+        };
+        debug!("Raw Embedding Response: {}", debug_body);
+
+        let response_body: EmbeddingResponse = serde_json::from_str(&body_text)
+            .context(format!("Failed to parse embedding response (expected OpenAI format). Raw: {}", debug_body))?;
             
         if response_body.data.is_empty() {
             anyhow::bail!("Empty data array returned from embedding server");
@@ -143,26 +161,38 @@ impl EmbeddingService {
     }
     
     /// Generate embeddings untuk batch texts (Parallel Optimized)
+    /// Generate embeddings untuk batch texts (Serialized Batching)
     pub async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>, ApiError> {
         use futures::future::join_all;
         
-        debug!("Generating batch embeddings for {} texts", texts.len());
+        debug!("Generating batch embeddings for {} texts (batch_size={})", texts.len(), self.batch_size);
 
-        // Parallel embedding generation
-        let futures: Vec<_> = texts.into_iter()
-            .map(|text| {
-                // Clone self for async block (ARC)
-                let service = self.clone();
-                async move {
-                    service.embed(&text).await
+        let mut all_results = Vec::with_capacity(texts.len());
+        
+        // Process in chunks (serial batches) to prevent semaphore flooding
+        for chunk_batch in texts.chunks(self.batch_size) {
+            let futures: Vec<_> = chunk_batch.iter()
+                .map(|text| {
+                    let service = self.clone();
+                    let t = text.clone();
+                    async move {
+                        service.embed(&t).await
+                    }
+                })
+                .collect();
+            
+            let results = join_all(futures).await;
+            
+            // If any error, bail
+            for res in results {
+                match res {
+                    Ok(emb) => all_results.push(emb),
+                    Err(e) => return Err(e),
                 }
-            })
-            .collect();
+            }
+        }
         
-        let results = join_all(futures).await;
-        
-        // Collect results and propagate first error
-        results.into_iter().collect()
+        Ok(all_results)
     }
 
     /// Embed with weights (Internal logic for trait)

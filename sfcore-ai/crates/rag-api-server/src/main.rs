@@ -91,18 +91,42 @@ async fn main() -> Result<()> {
     info!("✅ Activity logger initialized");
     
     // Initialize Limiters
+    // Initialize concurrency limiters
     let limiters = Arc::new(utils::limiters::Limiters::new(&settings.limits));
     info!("✅ Global concurrency limiters initialized");
 
+    // OVERRIDE: Check for Gemini Configuration
+    let mut final_embedding_config = settings.embedding.clone();
+    let mut final_llm_config = settings.llm.clone();
+
+    if let Some(gemini) = &settings.gemini {
+        if gemini.enabled {
+            info!("♊ Gemini Configuration Detected & ENABLED! Overriding LLM and Embedding settings.");
+            
+            // Override Embedding Config for Gemini
+        final_embedding_config.base_url = gemini.base_url.clone().unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta/openai".to_string());
+        final_embedding_config.model = gemini.embedding_model.clone().unwrap_or_else(|| "text-embedding-004".to_string());
+        final_embedding_config.dimension = 768; // Standard for text-embedding-004
+        final_embedding_config.api_key = Some(gemini.api_key.clone());
+        
+        // Override LLM Config for Gemini
+        final_llm_config.base_url = gemini.base_url.clone().unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta/openai".to_string());
+        final_llm_config.api_key = Some(gemini.api_key.clone());
+        final_llm_config.max_tokens = 8192; // Default for flash
+        final_llm_config.model = Some(gemini.model.clone().unwrap_or_else(|| "gemini-1.5-flash".to_string()));
+        }
+    }
+
     // Initialize services
     let embedding_service = Arc::new(EmbeddingService::new(
-        settings.embedding.base_url.clone(),
-        settings.embedding.clone(),
+        final_embedding_config.base_url.clone(),
+        final_embedding_config.clone(),
         limiters.clone(),
+        settings.limits.embedding_batch_size,
     ));
 
     let llm_service = Arc::new(LlmService::new(
-        settings.llm.clone(),
+        final_llm_config.clone(),
         settings.prompts.context_extraction_system_prompt.clone(),
         limiters.clone(),
     ));
@@ -112,6 +136,7 @@ async fn main() -> Result<()> {
         embedding_service.clone(),
         llm_service.clone(),
         &settings.rag,
+        &settings.limits, // NEW
     ));
     
     let rag_service = Arc::new(RagService::new(
@@ -127,9 +152,11 @@ async fn main() -> Result<()> {
         Box::new((*embedding_service).clone()),
         Box::new((*rag_service).clone()),
         Box::new((*llm_service).clone()),
-        logger,
+        logger.clone(),
         settings.llm.stream_response,
         settings.prompts.main_system_prompt.clone(),
+        settings.prompts.deep_scan_system_prompt.clone(),
+        settings.rag.clone(),
     ));
     info!("✅ Conversation manager initialized");
 
@@ -212,9 +239,8 @@ fn build_router(app_state: Arc<AppState>) -> Router {
         .route("/health/ready", get(handlers::health::readiness_check));
     
     // Protected routes
-    let protected_routes = Router::new()
+    let mut protected_routes = Router::new()
         // Chat Endpoints
-        .route("/api/chat/stream", post(handlers::chat::chat_stream_handler))
         .route("/api/chat/session/new", post(handlers::chat::new_session_handler))
         .route("/api/chat/init", post(handlers::chat::init_handler))
         .route("/api/chat/events", get(handlers::chat::events_handler))
@@ -224,9 +250,52 @@ fn build_router(app_state: Arc<AppState>) -> Router {
         
         // Existing Endpoints
         .route("/api/search", post(handlers::search::search_handler))
-        .route("/api/upload", post(handlers::upload::upload_handler))
-        .route("/api/documents", post(handlers::search::list_documents_handler))
-        
+        .route("/api/documents", post(handlers::search::list_documents_handler));
+
+    // ==================================================================================
+    // 🔀 ROUTING SWITCH (Toggle Mode)
+    // Controlled by [gemini] enabled = true/false in settings.toml
+    // ==================================================================================
+
+    let mut use_gemini = false;
+    if let Some(gemini) = &app_state.settings.gemini {
+        if gemini.enabled {
+             use_gemini = true;
+        }
+    }
+
+    if use_gemini {
+        // Mode 1: GEMINI
+        info!("🔀 Mode: GEMINI (Enabled via settings)");
+        protected_routes = route_for_gemini(protected_routes);
+    } else {
+        // Mode 2: LEGACY (Ollama/Standard)
+        info!("🔀 Mode: LEGACY/OLLAMA (Default/Gemini Disabled)");
+        protected_routes = route_for_legacy(protected_routes);
+    }
+
+    // FOR MANUAL FORCE (Example):
+    // protected_routes = route_for_legacy(protected_routes); // Uncomment this to force Legacy
+    // protected_routes = route_for_gemini(protected_routes); // Uncomment this to force Gemini
+
+/// ♊ Configure Routes for GEMINI (Upload -> Gemini Handler)
+fn route_for_gemini(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
+    use handlers::{gemini, chat};
+    router
+        .route("/api/upload", post(gemini::upload_handler_gemini))
+        // Note: Chat stream uses standard handler but with Gemini-configured LLM Service
+        .route("/api/chat/stream", post(chat::chat_stream_handler))
+}
+
+/// 🦙 Configure Routes for LEGACY/OLLAMA (Upload -> Standard Handler)
+fn route_for_legacy(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
+    use handlers::{upload, chat};
+    router
+        .route("/api/upload", post(upload::upload_handler))
+        .route("/api/chat/stream", post(chat::chat_stream_handler))
+}
+
+    protected_routes = protected_routes
         .layer(middleware::from_fn(security::middleware::security_middleware))
         
         // Inject Extensions
