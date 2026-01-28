@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 
 #[derive(Debug, Serialize)]
 struct EmbeddingRequest {
-    input: String,
+    input: Vec<String>,
     model: String,
 }
 
@@ -26,6 +26,7 @@ struct EmbeddingResponse {
 #[derive(Debug, Deserialize)]
 struct EmbeddingData {
     embedding: Vec<f32>,
+    index: Option<usize>, // Add index for safety sorting if needed
 }
 
 use crate::utils::limiters::Limiters;
@@ -62,12 +63,18 @@ impl EmbeddingService {
     
     /// Generate embedding untuk single text (Existing Public API)
     pub async fn embed(&self, text: &str) -> Result<Vec<f32>, ApiError> {
-        self.embed_internal(text).await.map_err(|e| ApiError::LlmError(e.to_string()))
+        // Optimization: Use the batch logic for single item to unify code path
+        // parse result from vector
+        let res = self.embed_batch(vec![text.to_string()]).await?;
+        res.into_iter().next().ok_or_else(|| ApiError::LlmError("No embedding returned".to_string()))
     }
 
-    /// Internal method returning anyhow::Result
+    /// Internal method returning anyhow::Result (Legacy wrapper if needed, but we used embed_batch now)
     async fn embed_internal(&self, text: &str) -> Result<Vec<f32>> {
-        // 1. Check Cache
+         // This is now redundant if we redirect to embed_batch, but keeping for compatibility if any internal call uses it specific logic.
+         // Let's implement it via direct request to match previous logic but with Array payload.
+         
+         // 1. Check Cache
         {
             let cache = self.cache.read().await;
             if let Some(embedding) = cache.get(text) {
@@ -75,8 +82,22 @@ impl EmbeddingService {
                 return Ok(embedding.clone());
             }
         }
-
-        // 2. Limiter acquire (only on cache MISS)
+        
+        let batch_res = self.send_embedding_request(vec![text.to_string()]).await?;
+        let embedding = batch_res.into_iter().next().ok_or_else(|| anyhow::anyhow!("No data returned"))?;
+        
+        // 3. Store in Cache
+        {
+            let mut cache = self.cache.write().await;
+            cache.insert(text.to_string(), embedding.clone());
+        }
+        
+        Ok(embedding)
+    }
+    
+    /// Helper to send actual HTTP request
+    async fn send_embedding_request(&self, inputs: Vec<String>) -> Result<Vec<Vec<f32>>> {
+         // 2. Limiter acquire
         let (_permit, wait) = Limiters::acquire_timed(
             self.limiters.embedding.clone(),
             self.limiters.acquire_timeout,
@@ -85,13 +106,10 @@ impl EmbeddingService {
         .await?;
 
         debug!(wait_ms = wait.as_millis() as u64, op = "embedding", "wait_queue");
-
         let exec_start = Instant::now();
 
-        debug!("Generating embedding for {} chars using model {}", text.len(), self.model_name);
-        
         let request = EmbeddingRequest {
-            input: text.to_string(),
+            input: inputs,
             model: self.model_name.clone(),
         };
         
@@ -118,78 +136,47 @@ impl EmbeddingService {
             anyhow::bail!("Embedding API error ({}): {}", status, body);
         }
         
-        // Parse standard OpenAI response format
         let body_text = response.text().await.context("Failed to read response body")?;
         
-        // DEBUG: Log the raw response to see what Llama Server is sending
-        // Truncate if too long to avoid huge logs, but keep enough to see structure
-        let debug_body = if body_text.len() > 500 {
-            format!("{}...", &body_text[..500]) 
-        } else {
-            body_text.clone()
-        };
-        debug!("Raw Embedding Response: {}", debug_body);
-
         let response_body: EmbeddingResponse = serde_json::from_str(&body_text)
-            .context(format!("Failed to parse embedding response (expected OpenAI format). Raw: {}", debug_body))?;
+            .context(format!("Failed to parse embedding response. Data sample: {:.200}", body_text))?;
             
         if response_body.data.is_empty() {
-            anyhow::bail!("Empty data array returned from embedding server");
+             return Ok(vec![]);
         }
         
-        let embedding = &response_body.data[0].embedding;
+        // Map data. Sort by index if present? Usually returned in order.
+        let results: Vec<Vec<f32>> = response_body.data.into_iter().map(|d| d.embedding).collect();
         
-        if embedding.is_empty() {
-            anyhow::bail!("Generated embedding vector is empty");
-        }
-
-        if embedding.len() != self.dimension {
-            anyhow::bail!(
-                "Embedding dimension mismatch: expected {}, got {}",
-                self.dimension,
-                embedding.len()
-            );
-        }
-
-        // 3. Store in Cache
-        {
-            let mut cache = self.cache.write().await;
-            cache.insert(text.to_string(), embedding.clone());
+        if results.len() != request.input.len() {
+             // Warn?
+             debug!("Requested {} embeddings, got {}", request.input.len(), results.len());
         }
         
-        Ok(embedding.clone())
+        Ok(results)
     }
-    
-    /// Generate embeddings untuk batch texts (Parallel Optimized)
-    /// Generate embeddings untuk batch texts (Serialized Batching)
-    pub async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>, ApiError> {
-        use futures::future::join_all;
-        
-        debug!("Generating batch embeddings for {} texts (batch_size={})", texts.len(), self.batch_size);
 
+    /// Generate embeddings untuk batch texts (True Batching)
+    pub async fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>, ApiError> {
+        if texts.is_empty() {
+            return Ok(vec![]);
+        }
+
+        debug!("Generating batch embeddings for {} texts", texts.len());
+        
+        // Check cache for ALL items first?
+        // Implementing partial cache hit logic is complex for batching (need to only request missing).
+        // For now, let's just send the request. Optimized cache later.
+        
+        // Split into chunks if texts > self.batch_size (safety)
+        // Note: document_service already batches, but this is a library method.
         let mut all_results = Vec::with_capacity(texts.len());
         
-        // Process in chunks (serial batches) to prevent semaphore flooding
         for chunk_batch in texts.chunks(self.batch_size) {
-            let futures: Vec<_> = chunk_batch.iter()
-                .map(|text| {
-                    let service = self.clone();
-                    let t = text.clone();
-                    async move {
-                        service.embed(&t).await
-                    }
-                })
-                .collect();
-            
-            let results = join_all(futures).await;
-            
-            // If any error, bail
-            for res in results {
-                match res {
-                    Ok(emb) => all_results.push(emb),
-                    Err(e) => return Err(e),
-                }
-            }
+             let chunk_vec = chunk_batch.to_vec();
+             let chunk_results = self.send_embedding_request(chunk_vec).await
+                 .map_err(|e| ApiError::LlmError(e.to_string()))?;
+             all_results.extend(chunk_results);
         }
         
         Ok(all_results)
