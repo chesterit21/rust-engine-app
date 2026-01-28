@@ -230,18 +230,36 @@ impl DocumentService {
         }
         
         // 4. Generate embeddings (batch) or Fallback
+        // 4. Generate embeddings (batch) or Fallback
         report_progress(0.6, "Generating embeddings (this might take a while)...".to_string(), "embedding-inprogress".to_string());
         let texts: Vec<String> = chunks.clone();
         
-        let embeddings = match self.embedding_service.embed_batch(texts.clone()).await {
-            Ok(e) => e,
-            Err(err) => {
-                warn!("Embedding failed for document {} (falling back to zerovec): {}", document_id, err);
-                // Fallback to zero vectors so Deep Scan can still work
-                let dim = self.embedding_service.dimension;
-                vec![vec![0.0; dim]; texts.len()]
-            }
-        };
+        // Use configured batch size
+        let batch_size = self.embedding_batch_size.max(1);
+        let mut embeddings = Vec::with_capacity(texts.len());
+        let total_batches = (texts.len() + batch_size - 1) / batch_size;
+
+        for (i, batch_texts) in texts.chunks(batch_size).enumerate() {
+             // Report progress for this batch
+             report_progress(
+                 0.6 + (0.2 * (i as f64 / total_batches as f64)), 
+                 format!("Embedding batch {}/{}...", i + 1, total_batches), 
+                 "embedding-inprogress".to_string()
+             );
+
+             // Embed batch
+             match self.embedding_service.embed_batch(batch_texts.to_vec()).await {
+                Ok(batch_embs) => {
+                    embeddings.extend(batch_embs);
+                },
+                Err(err) => {
+                    warn!("Embedding failed for batch {}/{} of document {} (falling back to zerovec): {}", i + 1, total_batches, document_id, err);
+                    // Fallback to zero vectors so Deep Scan can still work for this batch
+                    let dim = self.embedding_service.dimension;
+                    embeddings.extend(vec![vec![0.0; dim]; batch_texts.len()]);
+                }
+             }
+        }
         // debug!("Generated {} embeddings", embeddings.len());
         
         // 5. Build chunk data

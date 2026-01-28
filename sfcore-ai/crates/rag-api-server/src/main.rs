@@ -117,6 +117,17 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Select Prompts based on Mode
+    let active_prompts = if let Some(gemini) = &settings.gemini {
+        if gemini.enabled {
+             settings.prompts.gemini.clone()
+        } else {
+             settings.prompts.local.clone()
+        }
+    } else {
+        settings.prompts.local.clone()
+    };
+
     // Initialize services
     let embedding_service = Arc::new(EmbeddingService::new(
         final_embedding_config.base_url.clone(),
@@ -127,7 +138,7 @@ async fn main() -> Result<()> {
 
     let llm_service = Arc::new(LlmService::new(
         final_llm_config.clone(),
-        settings.prompts.context_extraction_system_prompt.clone(),
+        active_prompts.context_extraction_system_prompt.clone(),
         limiters.clone(),
     ));
 
@@ -154,8 +165,8 @@ async fn main() -> Result<()> {
         Box::new((*llm_service).clone()),
         logger.clone(),
         settings.llm.stream_response,
-        settings.prompts.main_system_prompt.clone(),
-        settings.prompts.deep_scan_system_prompt.clone(),
+        active_prompts.main_system_prompt.clone(),
+        active_prompts.deep_scan_system_prompt.clone(),
         settings.rag.clone(),
     ));
     info!("✅ Conversation manager initialized");

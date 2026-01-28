@@ -95,10 +95,16 @@ pub struct RagConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PromptsConfig {
+    pub local: PromptSet,
+    pub gemini: PromptSet,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PromptSet {
     pub main_system_prompt: String,
     pub context_extraction_system_prompt: String,
-    pub rag_query_system_prompt: String, // NEW
-    pub deep_scan_system_prompt: String, // NEW
+    pub rag_query_system_prompt: String,
+    pub deep_scan_system_prompt: String,
 }
 
 impl Settings {
