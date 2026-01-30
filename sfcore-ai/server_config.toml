@@ -1,28 +1,71 @@
+# server_config.toml
 # SFCore AI Server Configuration
 
-# Path to the GGUF model file
-# Ganti path ini ke lokasi model Anda
+# === Model Configuration ===
 model = "./models/QwenCoder-1.5b.gguf"
 
-# Unix Domain Socket path (default: /tmp/sfcore-ai.sock)
+# === Transport Mode ===
+# Options: "uds" | "http-sse" | "tcp"
+transport = "tcp"
+
+# === Authentication ===
+[auth]
+api_key = "sk-sfcore-1234567890abcdef"
+allowed_clients = ["MyApp-v1.0", "Dashboard-v2.0", "MobileApp-v1.5"]
+
+# === Rate Limiting ===
+[rate_limit]
+requests_per_minute = 60
+
+# === Transport Configurations ===
+[uds]
 socket = "/tmp/sfcore-ai.sock"
 
-# === Performance Options (Optimized for 4-core CPU) ===
+[http]
+host = "0.0.0.0"
+port = 8080
 
-# Decoding threads (50-75% of cores)
-threads = 3
+[tcp]
+host = "127.0.0.1"
+port = 8765
 
-# Prefill/Batch threads (100% of cores usually OK)
-threads_batch = 3
 
-# Context Length (4K default)
-context_length = 8192
+# Or expose to network (⚠️ WARNING: No encryption!)
+# host = "0.0.0.0"
+# port = 8765
 
-# Batch Size (Optimized for Prompt Processing)
-batch_size = 4096
+# === Engine Performance Parameters ===
+# Semua parameter ini bisa di-override via CLI arguments
 
-# Micro Batch Size (Optimized for L2 Cache)
-ubatch_size = 2048
+[engine]
+# Context & Memory
+context_length = 32000        # -c, --ctx-size: Max context length
+batch_size = 512              # --batch-size: Logical batch size for prompt processing
+ubatch_size = 256             # --ubatch-size: Physical batch size (per step)
 
-# Lock Model in RAM (prevent swapping)
-mlock = true
+# Threading
+threads = 2                   # --threads: Decoding threads (50-75% cores)
+threads_batch = 2             # --threads-batch: Batch processing threads
+
+# Parallel Processing
+parallel = 1                  # --parallel: Number of parallel sequences (multi-request)
+
+# Caching & Memory
+no_cache_prompt = false       # --no-cache-prompt: Disable prompt caching (save memory)
+mlock = true                  # Lock model in RAM (prevent swap)
+
+# Token Management
+keep_tokens = -1              # --keep: Tokens to keep from prompt (-1 = all, 0 = none)
+
+# Sampling Defaults (dapat di-override per request)
+seed = 1234
+temperature = 0.5
+top_k = 40
+top_p = 0.9
+min_p = 0.05
+
+# Penalties
+repeat_penalty = 1.0
+repeat_last_n = 64
+frequency_penalty = 0.3
+presence_penalty = 0.2

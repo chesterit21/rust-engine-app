@@ -24,78 +24,26 @@ pub struct ChatMessage {
 #[derive(Debug, Clone)]
 pub struct LlamaCppOptions {
     // --- System Parameters ---
-    /// Jumlah thread untuk decoding (generasi token per token).
-    /// Disarankan: 50-75% dari physical cores (misal 2-3 untuk 4 cores).
-    /// Jangan set max cores agar OS tidak macet.
     pub threads: Option<i32>,
-
-    /// Jumlah thread untuk prefill (prompt processing) dan batching.
-    /// Ini sangat berpengaruh saat prompt awal panjang.
-    /// Disarankan: Setara physical cores (misal 4 untuk 4 cores).
     pub threads_batch: Option<i32>,
-
-    /// Panjang konteks maksimal (prompt + output).
-    /// Hati-hati: Semakin besar, semakin boros RAM (KV Cache).
-    /// Default: 2048 (cukup untuk chat pendek/sedang).
     pub context_length: u32,
-
-    /// Logical batch size (maksimal token yang diproses sekaligus).
-    /// Lebih besar = prefill lebih cepat tapi butuh RAM lebih.
-    /// Default: 512-2048.
     pub batch_size: usize,
-
-    /// Physical batch size (sub-batch yang dieksekusi per step).
-    /// Pecahan dari batch_size untuk efisiensi L2 Cache CPU.
-    /// Default: 512 (sweet spot untuk banyak CPU modern).
     pub ubatch_size: usize,
-
-    /// Seed untuk Random Number Generator (RNG).
-    /// Set nilai tetap untuk hasil yang deterministik (reproducible).
     pub seed: u32,
-
-    /// Jika true, kunci model di RAM agar tidak kena swap ke disk.
-    /// Sangat disarankan jika RAM cukup, mencegah stuttering.
-    /// Default: false (aman untuk RAM pas-pasan).
     pub use_mlock: bool,
+    
+    // --- NEW: Cache Control ---
+    /// Disable KV cache for prompts (saves memory but slower)
+    pub no_cache_prompt: bool,
 
     // --- Sampling Parameters ---
-    /// Mengontrol keacakan output (Creativity).
-    /// - 0.0: Greedy decoding (selalu pilih yang paling mungkin / kaku).
-    /// - 0.7: Balanced (kreatif tapi logis).
-    /// - >1.0: Sangat acak / halusinasi.
     pub temperature: f32,
-
-    /// Membatasi pilihan token hanya pada K token teratas.
-    /// - 40: Nilai default umum.
-    /// - 0: Disabled (pertimbangkan semua token di vocab).
     pub top_k: i32,
-
-    /// Nucleus Sampling: Ambil token teratas dengan total probabilitas P.
-    /// - 0.9: Filter ekor panjang probabilitas rendah.
-    /// - 1.0: Disabled.
     pub top_p: f32,
-
-    /// Minimum Probability: Buang token yang probabilitasnya < P * prob token terbaik.
-    /// - 0.05: Filter token sampah/typo yang sangat tidak mungkin.
     pub min_p: f32,
-
-    // --- Penalties (Anti-Repetition) ---
-    /// Hukuman Multiplikatif untuk token yang sudah muncul.
-    /// - 1.0: Disabled (tanpa hukuman).
-    /// - 1.1 - 1.2: Cukup untuk mencegah looping ringan.
     pub repeat_penalty: f32,
-
-    /// Jumlah token terakhir yang dicek untuk penalti (Context window lookback).
-    /// - 64: Cek 64 token terakhir.
-    /// - 0: Cek seluruh konteks (lambat).
     pub repeat_last_n: i32,
-
-    /// Hukuman Aditif berdasarkan seberapa sering token muncul (Frequency).
-    /// Efek: Mencegah kata yang SAMA diulang-ulang berlebihan.
     pub frequency_penalty: f32,
-
-    /// Hukuman Aditif jika token SUDAH pernah muncul (Presence).
-    /// Efek: Memaksa model membicarakan topik/hal BARU (bukan sekadar kata beda).
     pub presence_penalty: f32,
 }
 
@@ -105,21 +53,19 @@ impl Default for LlamaCppOptions {
             // System defaults
             threads: Some(4),
             threads_batch: Some(4),
-            context_length: 4096, // 4K context
+            context_length: 4096,
             batch_size: 2048,
             ubatch_size: 1024,
-
             seed: 1234,
             use_mlock: true,
-
+            no_cache_prompt: false, // Enable cache by default
+            
             // Sampling defaults
-            temperature: 0.5, // Balanced
-            top_k: 40,        // Common default
-            top_p: 0.9,       // Nucleus sampling
-            min_p: 0.05,      // Filter very unlikely tokens
-
-            // Repetition defaults (light penalty)
-            repeat_penalty: 1.0, // Off by default
+            temperature: 0.5,
+            top_k: 40,
+            top_p: 0.9,
+            min_p: 0.05,
+            repeat_penalty: 1.0,
             repeat_last_n: 64,
             frequency_penalty: 0.0,
             presence_penalty: 0.0,
@@ -151,44 +97,37 @@ impl LlamaCppEngine {
     pub fn load_gguf(&mut self, model_path: &str) -> Result<()> {
         let t0 = Instant::now();
         info!("loading GGUF model: {}", model_path);
-
         let mut model_params = LlamaModelParams::default();
         if self.opts.use_mlock {
             model_params = model_params.with_use_mlock(true);
         }
-        let model_params = pin!(model_params);
 
+        let model_params = pin!(model_params);
         let model = LlamaModel::load_from_file(&self.backend, model_path, &model_params)
             .with_context(|| format!("failed to load model: {}", model_path))?;
-
         let load_ms = t0.elapsed().as_millis();
         info!("model loaded in {} ms", load_ms);
-
         self.model = Some(model);
         Ok(())
     }
 
     /// Apply chat template to a list of messages.
-    /// Returns the formatted prompt string.
     pub fn apply_chat_template(&self, messages: &[ChatMessage]) -> Result<String> {
         let model = self
             .model
             .as_ref()
             .ok_or_else(|| anyhow!("model not loaded"))?;
 
-        // Convert to LlamaChatMessage
         let chat_messages: Vec<LlamaChatMessage> = messages
             .iter()
             .map(|m| LlamaChatMessage::new(m.role.clone(), m.content.clone()))
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<std::result::Result<_, _>>()
             .map_err(|e| anyhow!("failed to create chat message: {:?}", e))?;
 
-        // Get template (None = usage default from model)
         let template = model
             .chat_template(None)
             .map_err(|e| anyhow!("failed to get chat template: {:?}", e))?;
 
-        // Apply
         let prompt = model
             .apply_chat_template(&template, &chat_messages, true)
             .map_err(|e| anyhow!("failed to apply chat template: {:?}", e))?;
@@ -197,7 +136,6 @@ impl LlamaCppEngine {
     }
 
     /// Generate text with streaming callback
-    /// Callback receives token string, returns true to continue, false to abort
     pub fn generate_with_callback<F>(
         &self,
         prompt: &str,
@@ -211,7 +149,6 @@ impl LlamaCppEngine {
             .model
             .as_ref()
             .ok_or_else(|| anyhow!("model not loaded"))?;
-
         let t_start = Instant::now();
 
         // Create context
@@ -224,11 +161,15 @@ impl LlamaCppEngine {
         if let Some(threads) = self.opts.threads {
             ctx_params = ctx_params.with_n_threads(threads);
         }
+
         if let Some(threads_batch) = self.opts.threads_batch {
             ctx_params = ctx_params.with_n_threads_batch(threads_batch);
         } else if let Some(threads) = self.opts.threads {
-            // Fallback to threads if threads_batch not set
             ctx_params = ctx_params.with_n_threads_batch(threads);
+        }
+
+        if self.opts.no_cache_prompt {
+            info!("Prompt caching disabled (no_cache_prompt = true)");
         }
 
         let mut ctx = model
@@ -239,37 +180,60 @@ impl LlamaCppEngine {
         let tokens_list = model
             .str_to_token(prompt, AddBos::Always)
             .with_context(|| "failed to tokenize prompt")?;
+        
+        let n_prompt_tokens = tokens_list.len();
+        info!("prompt tokens: {}", n_prompt_tokens);
 
-        info!("prompt tokens: {}", tokens_list.len());
-
-        // Create batch (optimized size)
-        let mut batch = LlamaBatch::new(self.opts.batch_size, 1);
-
-        let last_index = (tokens_list.len() - 1) as i32;
-        for (i, token) in (0_i32..).zip(tokens_list.iter()) {
-            let is_last = i == last_index;
-            batch.add(*token, i, &[0], is_last)?;
+        // Validate prompt length
+        if n_prompt_tokens >= self.opts.context_length as usize {
+            return Err(anyhow!(
+                "Prompt too long: {} tokens exceeds context limit of {}",
+                n_prompt_tokens,
+                self.opts.context_length
+            ));
         }
 
-        // Initial decode (prefill)
-        ctx.decode(&mut batch)
-            .with_context(|| "prefill decode failed")?;
-
+        // ✅ FIX: Chunked prefill (process in batches)
+        let batch_size = self.opts.batch_size;
+        let mut n_cur = 0i32;
+        
+        info!("prefill starting: {} tokens in chunks of {}", n_prompt_tokens, batch_size);
+        
+        // Process prompt in batches
+        for chunk_start in (0..n_prompt_tokens).step_by(batch_size) {
+            let chunk_end = std::cmp::min(chunk_start + batch_size, n_prompt_tokens);
+            let chunk = &tokens_list[chunk_start..chunk_end];
+            let chunk_size = chunk.len();
+            
+            let mut batch = LlamaBatch::new(batch_size, 1);
+            
+            // Add tokens from this chunk
+            for (i, token) in chunk.iter().enumerate() {
+                let pos = chunk_start as i32 + i as i32;
+                let is_last = (chunk_start + i) == (n_prompt_tokens - 1);
+                
+                batch.add(*token, pos, &[0], is_last)?;
+            }
+            
+            // Decode this batch
+            ctx.decode(&mut batch)
+                .with_context(|| format!("prefill decode failed at chunk {}-{}", chunk_start, chunk_end))?;
+            
+            n_cur += chunk_size as i32;
+        }
+        
         let prefill_ms = t_start.elapsed().as_millis();
+        info!("prefill completed in {} ms", prefill_ms);
 
-        // Generation loop
-        let mut n_cur = batch.n_tokens();
-        let n_len = tokens_list.len() as i32 + max_tokens;
+        // ✅ Generation loop (now starts after full prefill)
+        let n_len = n_prompt_tokens as i32 + max_tokens;
         let mut n_decode = 0;
         let mut output = String::new();
-
         let t_gen_start = Instant::now();
         let mut first_token_time: Option<u128> = None;
 
-        // UTF-8 decoder
         let mut decoder = encoding_rs::UTF_8.new_decoder();
 
-        // Sampler chain dengan semua parameters
         let mut sampler = LlamaSampler::chain_simple([
             LlamaSampler::penalties(
                 self.opts.repeat_last_n,
@@ -284,38 +248,35 @@ impl LlamaCppEngine {
             LlamaSampler::dist(self.opts.seed),
         ]);
 
+        // Generation loop
         while n_cur < n_len {
-            let token = sampler.sample(&ctx, batch.n_tokens() - 1);
+            // Sample next token (from last position in context)
+            let token = sampler.sample(&ctx, n_cur - 1);
             sampler.accept(token);
 
-            // Record first token time
             if first_token_time.is_none() {
                 first_token_time = Some(t_start.elapsed().as_millis());
             }
 
-            // Check end of generation
             if model.is_eog_token(token) {
                 break;
             }
 
-            // Decode token to string
             let output_bytes = model.token_to_bytes(token, Special::Tokenize)?;
             let mut token_str = String::with_capacity(32);
             let _ = decoder.decode_to_string(&output_bytes, &mut token_str, false);
-
             output.push_str(&token_str);
 
-            // Invok callback
             let continue_gen = callback(token_str);
             if !continue_gen {
                 break;
             }
 
-            // Prepare next batch
-            batch.clear();
+            // Add next token to context
+            let mut batch = LlamaBatch::new(1, 1);
             batch.add(token, n_cur, &[0], true)?;
-
             n_cur += 1;
+            
             ctx.decode(&mut batch).with_context(|| "decode failed")?;
             n_decode += 1;
         }
@@ -338,14 +299,13 @@ impl LlamaCppEngine {
         })
     }
 
-    /// Generate text with default stdout printing (CLI compatibility)
+    /// Generate text with default stdout printing
     pub fn generate(&self, prompt: &str, max_tokens: i32) -> Result<GenerationResult> {
         self.generate_with_callback(prompt, max_tokens, |token| {
             print!("{}", token);
             let _ = std::io::Write::flush(&mut std::io::stdout());
-            true // continue
+            true
         })
-        // Note: println!() is done by caller in main.rs or separate
     }
 }
 
