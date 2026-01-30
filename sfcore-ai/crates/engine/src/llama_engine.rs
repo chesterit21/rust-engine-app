@@ -7,7 +7,7 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaChatMessage, LlamaModel, Special};
 use llama_cpp_2::sampling::LlamaSampler;
-use log::info;
+use log::{info, warn, error};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use std::pin::pin;
@@ -23,7 +23,6 @@ pub struct ChatMessage {
 /// Options for LlamaCpp engine - all sampling parameters
 #[derive(Debug, Clone)]
 pub struct LlamaCppOptions {
-    // --- System Parameters ---
     pub threads: Option<i32>,
     pub threads_batch: Option<i32>,
     pub context_length: u32,
@@ -31,12 +30,7 @@ pub struct LlamaCppOptions {
     pub ubatch_size: usize,
     pub seed: u32,
     pub use_mlock: bool,
-    
-    // --- NEW: Cache Control ---
-    /// Disable KV cache for prompts (saves memory but slower)
     pub no_cache_prompt: bool,
-
-    // --- Sampling Parameters ---
     pub temperature: f32,
     pub top_k: i32,
     pub top_p: f32,
@@ -50,7 +44,6 @@ pub struct LlamaCppOptions {
 impl Default for LlamaCppOptions {
     fn default() -> Self {
         Self {
-            // System defaults
             threads: Some(4),
             threads_batch: Some(4),
             context_length: 4096,
@@ -58,9 +51,7 @@ impl Default for LlamaCppOptions {
             ubatch_size: 1024,
             seed: 1234,
             use_mlock: true,
-            no_cache_prompt: false, // Enable cache by default
-            
-            // Sampling defaults
+            no_cache_prompt: false,
             temperature: 0.5,
             top_k: 40,
             top_p: 0.9,
@@ -81,7 +72,6 @@ pub struct LlamaCppEngine {
 }
 
 impl LlamaCppEngine {
-    /// Create a new LlamaCpp engine
     pub fn new(opts: LlamaCppOptions) -> Result<Self> {
         let backend =
             LlamaBackend::init().map_err(|e| anyhow!("failed to init llama backend: {e}"))?;
@@ -93,7 +83,6 @@ impl LlamaCppEngine {
         })
     }
 
-    /// Load a GGUF model file
     pub fn load_gguf(&mut self, model_path: &str) -> Result<()> {
         let t0 = Instant::now();
         info!("loading GGUF model: {}", model_path);
@@ -111,7 +100,6 @@ impl LlamaCppEngine {
         Ok(())
     }
 
-    /// Apply chat template to a list of messages.
     pub fn apply_chat_template(&self, messages: &[ChatMessage]) -> Result<String> {
         let model = self
             .model
@@ -135,7 +123,6 @@ impl LlamaCppEngine {
         Ok(prompt)
     }
 
-    /// Generate text with streaming callback
     pub fn generate_with_callback<F>(
         &self,
         prompt: &str,
@@ -152,7 +139,9 @@ impl LlamaCppEngine {
         let t_start = Instant::now();
 
         // Create context
-        let ctx_size = NonZeroU32::new(self.opts.context_length).unwrap();
+        let ctx_size = NonZeroU32::new(self.opts.context_length)
+            .ok_or_else(|| anyhow!("context_length must be > 0"))?;
+        
         let mut ctx_params = LlamaContextParams::default()
             .with_n_ctx(Some(ctx_size))
             .with_n_batch(self.opts.batch_size as u32)
@@ -168,75 +157,62 @@ impl LlamaCppEngine {
             ctx_params = ctx_params.with_n_threads_batch(threads);
         }
 
-        if self.opts.no_cache_prompt {
-            info!("Prompt caching disabled (no_cache_prompt = true)");
-        }
-
         let mut ctx = model
             .new_context(&self.backend, ctx_params)
             .with_context(|| "failed to create context")?;
 
-        // Tokenize prompt
+        // Tokenize
         let tokens_list = model
             .str_to_token(prompt, AddBos::Always)
             .with_context(|| "failed to tokenize prompt")?;
         
-        let n_prompt_tokens = tokens_list.len();
-        info!("prompt tokens: {}", n_prompt_tokens);
+        let n_prompt = tokens_list.len();
+        info!("prompt tokens: {}", n_prompt);
 
-        // Validate prompt length
-        if n_prompt_tokens >= self.opts.context_length as usize {
+        if n_prompt + max_tokens as usize >= self.opts.context_length as usize {
             return Err(anyhow!(
-                "Prompt too long: {} tokens exceeds context limit of {}",
-                n_prompt_tokens,
-                self.opts.context_length
+                "Total tokens ({} prompt + {} max) exceeds context {}",
+                n_prompt, max_tokens, self.opts.context_length
             ));
         }
 
-        // ✅ FIX: Chunked prefill (process in batches)
+        // ✅ CRITICAL: Simplified chunked prefill
         let batch_size = self.opts.batch_size;
-        let mut n_cur = 0i32;
+        let mut n_past = 0i32;
         
-        info!("prefill starting: {} tokens in chunks of {}", n_prompt_tokens, batch_size);
-        
-        // Process prompt in batches
-        for chunk_start in (0..n_prompt_tokens).step_by(batch_size) {
-            let chunk_end = std::cmp::min(chunk_start + batch_size, n_prompt_tokens);
-            let chunk = &tokens_list[chunk_start..chunk_end];
-            let chunk_size = chunk.len();
+        info!("prefill: {} tokens, batch_size={}", n_prompt, batch_size);
+
+        let mut token_idx = 0;
+        while token_idx < n_prompt {
+            let chunk_size = std::cmp::min(batch_size, n_prompt - token_idx);
+            let chunk = &tokens_list[token_idx..token_idx + chunk_size];
             
             let mut batch = LlamaBatch::new(batch_size, 1);
             
-            // Add tokens from this chunk
-            // ✅ KEY FIX: Only mark LAST token of LAST chunk for logits
-            for (i, token) in chunk.iter().enumerate() {
-                let pos = chunk_start as i32 + i as i32;
-                let is_last_in_chunk = i == (chunk_size - 1);
-                let is_last_chunk = chunk_end == n_prompt_tokens;
-                
-                // Only request logits for the very last token of the entire prompt
-                let need_logits = is_last_in_chunk && is_last_chunk;
-                
-                batch.add(*token, pos, &[0], need_logits)?;
+            // ✅ Add tokens to batch
+            // Only enable logits for LAST token of ENTIRE prompt
+            for (i, &token) in chunk.iter().enumerate() {
+                let is_last_token_overall = (token_idx + i) == (n_prompt - 1);
+                batch.add(token, n_past + i as i32, &[0], is_last_token_overall)?;
             }
             
-            // Decode this batch
-            ctx.decode(&mut batch)
-                .with_context(|| format!("prefill decode failed at chunk {}-{}", chunk_start, chunk_end))?;
+            // Decode
+            ctx.decode(&mut batch).with_context(|| {
+                format!("prefill failed at tokens {}-{}", token_idx, token_idx + chunk_size)
+            })?;
             
-            n_cur += chunk_size as i32;
+            n_past += chunk_size as i32;
+            token_idx += chunk_size;
         }
         
         let prefill_ms = t_start.elapsed().as_millis();
-        info!("prefill completed in {} ms", prefill_ms);
+        info!("prefill done: {} ms, n_past={}", prefill_ms, n_past);
 
-        // ✅ Generation loop (now starts after full prefill)
-        let n_len = n_prompt_tokens as i32 + max_tokens;
+        // ✅ Generation loop
         let mut n_decode = 0;
         let mut output = String::new();
         let t_gen_start = Instant::now();
         let mut first_token_time: Option<u128> = None;
-
         let mut decoder = encoding_rs::UTF_8.new_decoder();
 
         let mut sampler = LlamaSampler::chain_simple([
@@ -253,12 +229,14 @@ impl LlamaCppEngine {
             LlamaSampler::dist(self.opts.seed),
         ]);
 
-        // ✅ CRITICAL FIX: Sample from batch index, not absolute position
-        // Generation loop
-        while n_cur < n_len {
-            // ✅ Sample from the last token in the batch (index -1 means last)
-            // The batch only contains 1 token, so we use index -1 (last token)
-            let token = sampler.sample(&ctx, -1);
+        while n_decode < max_tokens {
+            if n_past >= self.opts.context_length as i32 {
+                warn!("Context full");
+                break;
+            }
+            
+            // ✅ Sample from last decoded position
+            let token = sampler.sample(&ctx, n_past - 1);
             sampler.accept(token);
 
             if first_token_time.is_none() {
@@ -266,25 +244,27 @@ impl LlamaCppEngine {
             }
 
             if model.is_eog_token(token) {
+                info!("EOG token");
                 break;
             }
 
+            // Decode token
             let output_bytes = model.token_to_bytes(token, Special::Tokenize)?;
             let mut token_str = String::with_capacity(32);
             let _ = decoder.decode_to_string(&output_bytes, &mut token_str, false);
             output.push_str(&token_str);
 
-            let continue_gen = callback(token_str);
-            if !continue_gen {
+            if !callback(token_str) {
+                info!("Stopped by callback");
                 break;
             }
 
-            // ✅ Add next token to context with logits=true
+            // Add to context
             let mut batch = LlamaBatch::new(1, 1);
-            batch.add(token, n_cur, &[0], true)?;  // logits=true for next sampling
-            n_cur += 1;
+            batch.add(token, n_past, &[0], true)?;
+            ctx.decode(&mut batch)?;
             
-            ctx.decode(&mut batch).with_context(|| "decode failed")?;
+            n_past += 1;
             n_decode += 1;
         }
 
@@ -296,6 +276,8 @@ impl LlamaCppEngine {
             0.0
         };
 
+        info!("done: {} tokens, {:.2} tok/s", n_decode, tokens_per_sec);
+
         Ok(GenerationResult {
             output,
             tokens_generated: n_decode,
@@ -306,7 +288,6 @@ impl LlamaCppEngine {
         })
     }
 
-    /// Generate text with default stdout printing
     pub fn generate(&self, prompt: &str, max_tokens: i32) -> Result<GenerationResult> {
         self.generate_with_callback(prompt, max_tokens, |token| {
             print!("{}", token);
@@ -316,7 +297,6 @@ impl LlamaCppEngine {
     }
 }
 
-/// Result of text generation
 #[derive(Debug)]
 pub struct GenerationResult {
     pub output: String,
