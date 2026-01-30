@@ -208,11 +208,16 @@ impl LlamaCppEngine {
             let mut batch = LlamaBatch::new(batch_size, 1);
             
             // Add tokens from this chunk
+            // ✅ KEY FIX: Only mark LAST token of LAST chunk for logits
             for (i, token) in chunk.iter().enumerate() {
                 let pos = chunk_start as i32 + i as i32;
-                let is_last = (chunk_start + i) == (n_prompt_tokens - 1);
+                let is_last_in_chunk = i == (chunk_size - 1);
+                let is_last_chunk = chunk_end == n_prompt_tokens;
                 
-                batch.add(*token, pos, &[0], is_last)?;
+                // Only request logits for the very last token of the entire prompt
+                let need_logits = is_last_in_chunk && is_last_chunk;
+                
+                batch.add(*token, pos, &[0], need_logits)?;
             }
             
             // Decode this batch
@@ -248,10 +253,12 @@ impl LlamaCppEngine {
             LlamaSampler::dist(self.opts.seed),
         ]);
 
+        // ✅ CRITICAL FIX: Sample from batch index, not absolute position
         // Generation loop
         while n_cur < n_len {
-            // Sample next token (from last position in context)
-            let token = sampler.sample(&ctx, n_cur - 1);
+            // ✅ Sample from the last token in the batch (index -1 means last)
+            // The batch only contains 1 token, so we use index -1 (last token)
+            let token = sampler.sample(&ctx, -1);
             sampler.accept(token);
 
             if first_token_time.is_none() {
@@ -272,9 +279,9 @@ impl LlamaCppEngine {
                 break;
             }
 
-            // Add next token to context
+            // ✅ Add next token to context with logits=true
             let mut batch = LlamaBatch::new(1, 1);
-            batch.add(token, n_cur, &[0], true)?;
+            batch.add(token, n_cur, &[0], true)?;  // logits=true for next sampling
             n_cur += 1;
             
             ctx.decode(&mut batch).with_context(|| "decode failed")?;

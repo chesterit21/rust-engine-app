@@ -576,3 +576,15 @@ Use Tailscale/WireGuard untuk private network, bind ke Tailscale IP.
 4. **Production**: Use HTTP-SSE with HTTPS instead
 
 **Android/iOS:** TCP work perfectly, tinggal connect via socket library! 🚀
+
+# Rebuild
+
+cargo build --release -p sfcore-ai-server
+
+# Run server
+
+./target/release/sfcore-ai-server
+
+# In another terminal, run your Node.js script
+
+node tcp_client.js
