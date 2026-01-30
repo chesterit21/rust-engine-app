@@ -60,7 +60,7 @@ impl TextureCache {
             Ok(img) => img.to_rgba8(),
             Err(e) => {
                 eprintln!("Failed to load image {}: {}", name, e);
-                let fallback = ColorImage::new([1, 1], egui::Color32::TRANSPARENT);
+                let fallback = ColorImage::new([1, 1], vec![egui::Color32::TRANSPARENT]);
                 return ctx.load_texture(name, fallback, TextureOptions::default());
             }
         };

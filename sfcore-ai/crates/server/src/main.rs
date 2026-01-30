@@ -63,8 +63,12 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Force single threaded BLAS to avoid contention
-    std::env::set_var("OPENBLAS_NUM_THREADS", "1");
-    std::env::set_var("MKL_NUM_THREADS", "1");
+    // SAFETY: set_var is unsafe in 2024 edition because it's not thread-safe.
+    // We are calling this at the very beginning of main, before any threads are spawned, so it is safe.
+    unsafe {
+        std::env::set_var("OPENBLAS_NUM_THREADS", "1");
+        std::env::set_var("MKL_NUM_THREADS", "1");
+    }
 
     env_logger::init();
     

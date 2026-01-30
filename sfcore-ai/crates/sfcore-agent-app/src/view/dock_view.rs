@@ -29,7 +29,7 @@ pub fn render_dock(
     theme_vm: &mut ThemeViewModel,
     textures: &mut TextureCache,
 ) {
-    let window_width = ctx.screen_rect().width();
+    let window_width = ctx.viewport_rect().width();
     let dock_x = window_width - DOCK_WIDTH;
 
     let _area_response = egui::Area::new(egui::Id::new("dock_bar"))
@@ -51,7 +51,7 @@ pub fn render_dock(
                 ui.ctx().set_cursor_icon(CursorIcon::Grab);
             }
 
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(30, 30, 40, 245))
                 .inner_margin(8.0)
                 .show(ui, |ui| {
@@ -135,7 +135,7 @@ pub fn render_dock(
                         // Close app button
                         let close_app_tex = textures.close_app(ctx);
                         let close_btn = ui.add(
-                            egui::ImageButton::new(
+                            egui::Button::image(
                                 Image::new(&close_app_tex).fit_to_exact_size(Vec2::splat(24.0)),
                             )
                             .frame(false),
@@ -167,14 +167,17 @@ fn dock_menu_item(
     };
 
     let btn = ui.add(
-        egui::ImageButton::new(Image::new(icon).fit_to_exact_size(Vec2::splat(ICON_SIZE)))
-            .frame(true)
-            .rounding(8.0)
-            .tint(if is_active {
-                Color32::WHITE
-            } else {
-                Color32::LIGHT_GRAY
-            }),
+        egui::Button::image(
+            Image::new(icon)
+                .fit_to_exact_size(Vec2::splat(ICON_SIZE))
+                .tint(if is_active {
+                    Color32::WHITE
+                } else {
+                    Color32::LIGHT_GRAY
+                }),
+        )
+        .frame(true)
+        .corner_radius(8.0),
     );
 
     // Cursor pointer on hover

@@ -61,6 +61,7 @@ impl UdsClient {
     pub async fn stream_chat(
         &self,
         prompt: &str,
+        system_prompt: &str,
         max_tokens: i32,
         tx: tokio::sync::mpsc::UnboundedSender<String>,
     ) -> Result<(), String> {
@@ -73,7 +74,7 @@ impl UdsClient {
             messages: vec![
                 Message {
                     role: "system".to_string(),
-                    content: "Kamu adalah Expert Agent Planner. Baca context yang diberikan dengan teliti. Analisis request user. Respond dengan JSON yang berisi teknologi stack breakdown. Gunakan <think> untuk menunjukkan reasoning process.".to_string(),
+                    content: system_prompt.to_string(),
                 },
                 Message {
                     role: "user".to_string(),

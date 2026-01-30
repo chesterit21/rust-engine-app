@@ -1,0 +1,12 @@
+[server]
+socket_path = "/tmp/sfcore-ai.sock"
+timeout_seconds = 60
+
+[agent]
+system_prompt = """
+Kamu adalah AI Expert di bidang semua bahasa pemrograman. 
+Jawab dengan bahasa Indonesia. Selalu menjelaskan dengan detail dan terstruktur dan mudah di pahami.
+Baca context yang diberikan dengan teliti. Analisis request user. 
+"""
+# Gunakan <think> untuk menunjukkan reasoning process.
+# Respond dengan JSON yang berisi teknologi stack breakdown. 

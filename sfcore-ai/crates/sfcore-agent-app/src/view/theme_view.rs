@@ -31,7 +31,7 @@ pub fn render_theme(ctx: &egui::Context, vm: &mut ThemeViewModel, textures: &mut
     let area_response = egui::Area::new(egui::Id::new("theme_picker"))
         .fixed_pos(Pos2::new(popup_x, popup_y))
         .show(ctx, |ui| {
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(35, 35, 45, 250))
                 .inner_margin(20.0)
                 .show(ui, |ui| {
@@ -41,7 +41,7 @@ pub fn render_theme(ctx: &egui::Context, vm: &mut ThemeViewModel, textures: &mut
                     ui.horizontal(|ui| {
                         let close_tex = textures.close(ctx);
                         let close_btn = ui.add(
-                            egui::ImageButton::new(
+                            egui::Button::image(
                                 Image::new(&close_tex).fit_to_exact_size(Vec2::splat(24.0)),
                             )
                             .frame(false),
@@ -78,7 +78,7 @@ pub fn render_theme(ctx: &egui::Context, vm: &mut ThemeViewModel, textures: &mut
                             } else {
                                 Color32::from_rgb(60, 60, 70)
                             })
-                            .rounding(8.0)
+                            .corner_radius(8.0)
                             .min_size(Vec2::new(100.0, 45.0)),
                         );
                         if light_btn.hovered() {
@@ -100,7 +100,7 @@ pub fn render_theme(ctx: &egui::Context, vm: &mut ThemeViewModel, textures: &mut
                             } else {
                                 Color32::from_rgb(60, 60, 70)
                             })
-                            .rounding(8.0)
+                            .corner_radius(8.0)
                             .min_size(Vec2::new(100.0, 45.0)),
                         );
                         if dark_btn.hovered() {

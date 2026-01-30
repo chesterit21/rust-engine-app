@@ -220,18 +220,20 @@ impl EngineViewModel {
         let tx_event = self.event_tx.clone();
         let socket_path = self.config.server.socket_path.clone();
 
-        tokio::spawn(async move {
-            // let _ = tx_event.send(AppEvent::EngineResponse(format!("🔍 [DEBUG] Connecting to {}", socket_path)));
-            let client = UdsClient::new(&socket_path);
-            let (tx_stream, mut rx_stream) = mpsc::unbounded_channel();
-            
-            // Clone tx_event for the streaming task
-            let tx_event_stream = tx_event.clone();
-            
-            // Start streaming in background task (don't await here!)
-            let stream_handle = tokio::spawn(async move {
-                client.stream_chat(&prompt, 1024, tx_stream).await
-            });
+            let system_prompt = self.config.agent.system_prompt.clone();
+
+            tokio::spawn(async move {
+                // let _ = tx_event.send(AppEvent::EngineResponse(format!("🔍 [DEBUG] Connecting to {}", socket_path)));
+                let client = UdsClient::new(&socket_path);
+                let (tx_stream, mut rx_stream) = mpsc::unbounded_channel();
+                
+                // Clone tx_event for the streaming task
+                let tx_event_stream = tx_event.clone();
+                
+                // Start streaming in background task (don't await here!)
+                let stream_handle = tokio::spawn(async move {
+                    client.stream_chat(&prompt, &system_prompt, 1024, tx_stream).await
+                });
             
             // PERFORMANCE IMPROVEMENT: Token batching
             // Buffer tokens and send in batches to reduce UI updates

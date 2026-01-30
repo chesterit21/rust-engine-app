@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
-use log::{error, info};
+use anyhow::Result;
+use log::info;
 use serde::{Deserialize, Serialize};
-use sfcore_ai_engine::{LlamaCppEngine, LlamaCppOptions, ChatMessage};
+use sfcore_ai_engine::{LlamaCppEngine, ChatMessage};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;

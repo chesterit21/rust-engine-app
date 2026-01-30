@@ -70,7 +70,7 @@ document_path = "C:\\DMS\\uploads\\"
 
 [limits]
 embedding_concurrency = 5
-db_search_concurrency = 20
+db_search_concurrency = 100
 llm_generate_concurrency = 5
 llm_stream_concurrency = 5
 acquire_timeout_ms = 60000

@@ -54,15 +54,28 @@ impl LoginViewModel {
         let tx = self.event_tx.clone();
 
         tokio::spawn(async move {
-            match verify_login(&pool, &username, &password).await {
-                Ok(user) => {
-                    let _ = tx.send(AppEvent::LoginSuccess(user));
-                }
-                Err(e) => {
-                    let _ = tx.send(AppEvent::LoginFailed(e.to_string()));
-                }
-            }
-            ctx.request_repaint();
+        // BYPASS: Mock Login (as requested by User)
+        // match verify_login(&pool, &username, &password).await {
+        //     Ok(user) => {
+        //         let _ = tx.send(AppEvent::LoginSuccess(user));
+        //     }
+        //     Err(e) => {
+        //         let _ = tx.send(AppEvent::LoginFailed(e.to_string()));
+        //     }
+        // }
+        // Force success if username is not empty
+        use crate::core::models::User;
+        let dummy_user = User {
+            id: 0,
+            username: username.clone(),
+            password: String::new(),
+            email: None,
+            phone: None,
+            is_active: true,
+        };
+        let _ = tx.send(AppEvent::LoginSuccess(dummy_user));
+
+        ctx.request_repaint();
         });
     }
 

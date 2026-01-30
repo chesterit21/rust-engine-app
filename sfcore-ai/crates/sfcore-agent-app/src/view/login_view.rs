@@ -8,14 +8,33 @@ use eframe::egui::{self, Button, Color32, RichText, TextEdit, Vec2};
 pub fn render_login(ctx: &egui::Context, vm: &mut LoginViewModel) {
     let response = egui::CentralPanel::default()
         .frame(
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(25, 25, 35, 245))
                 .inner_margin(20.0),
         )
         .show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(15.0);
+            // Close Button (Top Right)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                ui.scope(|ui| {
+                    // Custom style for this button only
+                    ui.style_mut().visuals.widgets.hovered.fg_stroke.color = Color32::RED;
+                    ui.style_mut().visuals.widgets.active.fg_stroke.color = Color32::RED;
+                    // Make normal state distinct (White)
+                    ui.style_mut().visuals.widgets.inactive.fg_stroke.color = Color32::WHITE;
 
+                    let btn = ui.add(Button::new(RichText::new("✖").size(20.0)).frame(false));
+                    
+                    if btn.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    
+                    if btn.clicked() {
+                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+            });
+
+            ui.vertical_centered(|ui| {
                 // Logo / Title
                 ui.label(RichText::new("🔐").size(40.0));
                 ui.add_space(5.0);
@@ -77,7 +96,7 @@ pub fn render_login(ctx: &egui::Context, vm: &mut LoginViewModel) {
                         [220.0, 40.0],
                         Button::new(RichText::new("Login").size(16.0).color(Color32::WHITE))
                             .fill(Color32::from_rgb(60, 100, 180))
-                            .rounding(8.0),
+                            .corner_radius(8.0),
                     );
                     if login_btn.clicked() {
                         vm.login(ctx.clone());

@@ -1,14 +1,14 @@
 [workspace]
 members = [
     # Existing AI/Inference Crates
-    # "crates/engine",
+     "crates/engine",
     # "crates/cli",
-    # "crates/server",
+     "crates/server",
     # "crates/localcached-proto",
     # "crates/localcached-server",
     # "crates/localcached-client",
     # "crates/localcached-cli",
-    # "crates/sfcore-agent-app",
+    "crates/sfcore-agent-app",
 
     # SSO Fullstack Rust Crates
     # "crates/sso-core",
@@ -24,12 +24,12 @@ members = [
     #"crates/rag-embedding-worker",
     
     # RAG API Server
-    "crates/rag-api-server",
+    # "crates/rag-api-server",
 ]
 resolver = "2"
 
 #[patch.crates-io]
-#llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }
+llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }
 
 # ============================================================================
 # SSO Workspace Dependencies

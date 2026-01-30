@@ -1,14 +1,14 @@
 [package]
 name = "sfcore-ai-engine"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [features]
 default = []
 
 [dependencies]
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 log = "0.4"
 env_logger = "0.11"
 
@@ -17,6 +17,6 @@ llama-cpp-2 = "0.1"
 encoding_rs = "0.8"
 
 # Observability dasar
-sysinfo = "0.30"
+sysinfo = "0.38"
 humantime = "2"
 serde = { version = "1.0.228", features = ["derive"] }

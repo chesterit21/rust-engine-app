@@ -72,7 +72,12 @@ impl MyApp {
                     Ok(pool) => Arc::new(pool),
                     Err(e) => {
                         eprintln!("Failed to connect to database: {}", e);
-                        panic!("Database connection required: {}", e);
+                        // panic!("Database connection required: {}", e);
+                        // RETRY or IGNORE? We need a pool for the struct.
+                        // We can't easily fake a PgPool without a connection.
+                        // For now, we still panic but with a clearer message,
+                        // OR we assume the user has a DB but just wants to skip Auth check.
+                        panic!("Database connection failed (Required for App State): {}", e);
                     }
                 }
             })
@@ -242,7 +247,7 @@ impl eframe::App for MyApp {
         }
 
         // GRADIENT BORDER - Draw at window edge after all views
-        let screen_rect = ctx.screen_rect().shrink(1.0);
+        let screen_rect = ctx.viewport_rect().shrink(1.0);
         let layer_id = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("window_border"));
         let painter = ctx.layer_painter(layer_id);
         crate::ui_helpers::draw_gradient_border(&painter, screen_rect, 1.0);

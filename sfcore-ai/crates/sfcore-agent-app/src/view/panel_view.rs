@@ -30,7 +30,7 @@ pub fn render_panel(
         return;
     }
 
-    let window_width = ctx.screen_rect().width();
+    let window_width = ctx.viewport_rect().width();
     let min_width = PANEL_WIDTH + 50.0;
     if window_width < min_width {
         return;
@@ -67,7 +67,7 @@ pub fn render_panel(
                 ui.ctx().set_cursor_icon(CursorIcon::Grab);
             }
 
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(bg_color)
                 .inner_margin(20.0)
                 .show(ui, |ui| {
@@ -79,7 +79,7 @@ pub fn render_panel(
                         // Close button
                         let close_tex = textures.close(ctx);
                         let close_btn = ui.add(
-                            egui::ImageButton::new(
+                            egui::Button::image(
                                 Image::new(&close_tex).fit_to_exact_size(Vec2::splat(24.0)),
                             )
                             .frame(false),
@@ -116,7 +116,7 @@ pub fn render_panel(
                                         };
 
                                         let btn = ui.add(
-                                            egui::ImageButton::new(
+                                            egui::Button::image(
                                                 Image::new(&icon)
                                                     .fit_to_exact_size(Vec2::splat(24.0)),
                                             )
@@ -283,9 +283,9 @@ fn render_engine(
     }
 
     // Log Panel (Small area for logs)
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgb(10, 10, 15))
-        .rounding(4.0)
+        .corner_radius(4.0)
         .inner_margin(5.0)
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -322,9 +322,9 @@ fn render_engine(
         let response_height = ui.available_height() - input_height;
 
         // 1. Response ScrollArea (Top)
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(Color32::from_rgba_unmultiplied(15, 15, 20, 200))
-            .rounding(4.0)
+            .corner_radius(4.0)
             .inner_margin(6.0) // Reduced from 10
             .show(ui, |ui| {
                 ScrollArea::vertical()
@@ -375,9 +375,9 @@ fn render_engine(
                                                 egui::Layout::right_to_left(egui::Align::Min),
                                                 |ui| {
                                                     ui.set_max_width(max_bubble_width);
-                                                    egui::Frame::none()
+                                                    egui::Frame::NONE
                                                         .fill(Color32::from_rgb(60, 100, 160))
-                                                        .rounding(8.0)
+                                                        .corner_radius(8.0)
                                                         .inner_margin(8.0)
                                                         .show(ui, |ui| {
                                                             ui.set_max_width(
@@ -399,9 +399,9 @@ fn render_engine(
                                         let max_bubble_width = ui.available_width() * 0.85;
                                         ui.horizontal(|ui| {
                                             ui.set_max_width(max_bubble_width);
-                                            egui::Frame::none()
+                                            egui::Frame::NONE
                                                 .fill(Color32::from_gray(35))
-                                                .rounding(8.0)
+                                                .corner_radius(8.0)
                                                 .inner_margin(8.0)
                                                 .show(ui, |ui| {
                                                     ui.set_max_width(max_bubble_width - 16.0);
@@ -426,9 +426,9 @@ fn render_engine(
                             if vm.is_loading {
                                 ui.add_space(5.0);
                                 ui.horizontal(|ui| {
-                                    egui::Frame::none()
+                                    egui::Frame::NONE
                                         .fill(Color32::from_gray(35))
-                                        .rounding(8.0)
+                                        .corner_radius(8.0)
                                         .inner_margin(8.0)
                                         .show(ui, |ui| {
                                             let time = ui.input(|i| i.time);
@@ -507,9 +507,9 @@ fn render_reports(ui: &mut egui::Ui) {
 }
 
 fn stat_card(ui: &mut egui::Ui, label: &str, value: &str) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(60, 60, 80, 200))
-        .rounding(8.0)
+        .corner_radius(8.0)
         .inner_margin(15.0)
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {
@@ -549,9 +549,9 @@ fn render_message_with_thinking(ui: &mut egui::Ui, content: &str) {
             )
             .default_open(false)
             .show(ui, |ui| {
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(Color32::from_rgba_unmultiplied(40, 40, 50, 150))
-                    .rounding(4.0)
+                    .corner_radius(4.0)
                     .inner_margin(6.0)
                     .show(ui, |ui| {
                         ui.add(

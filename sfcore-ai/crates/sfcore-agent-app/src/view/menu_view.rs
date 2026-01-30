@@ -36,11 +36,11 @@ pub fn render_menu(ctx: &egui::Context, vm: &mut MenuViewModel) {
         // fixed_pos: Posisi absolut di layar
         // screen_width - 250 + offset = slide dari kanan ke kiri
         .fixed_pos(Pos2::new(
-            ctx.screen_rect().width() - 250.0 + vm.offset,
+            ctx.viewport_rect().width() - 250.0 + vm.offset,
             50.0, // Y position dari atas
         ))
         .show(ctx, |ui| {
-            egui::Frame::none()
+            egui::Frame::NONE
                 // ============================================================
                 // FRAME STYLING
                 // ============================================================
@@ -50,7 +50,7 @@ pub fn render_menu(ctx: &egui::Context, vm: &mut MenuViewModel) {
                 .fill(Color32::from_rgba_unmultiplied(40, 40, 40, 240))
                 // rounding: Border radius dalam pixel (sudut melengkung)
                 // Nilai 8.0 = sudut sedikit rounded
-                .rounding(8.0)
+                .corner_radius(8.0)
                 // inner_margin: Padding di dalam frame (jarak konten dari tepi)
                 // Nilai 15.0 = 15 pixel padding di semua sisi
                 .inner_margin(15.0)
@@ -129,18 +129,18 @@ pub fn render_menu(ctx: &egui::Context, vm: &mut MenuViewModel) {
             // - screen_width - 520: Posisi X dari kiri (520px dari kanan)
             // - secondary_offset: Animasi slide (800 → 0 saat muncul)
             .fixed_pos(Pos2::new(
-                ctx.screen_rect().width() - 520.0 + vm.secondary_offset,
+                ctx.viewport_rect().width() - 520.0 + vm.secondary_offset,
                 // - 50.0: Posisi Y dari atas layar
                 50.0,
             ))
             .show(ctx, |ui| {
-                egui::Frame::none()
+                egui::Frame::NONE
                     // Warna berbeda untuk Settings (lebih gelap)
                     .fill(match menu {
                         MenuItem::Settings => Color32::from_rgba_unmultiplied(20, 20, 20, 220),
                         _ => Color32::from_rgba_unmultiplied(50, 50, 60, 240),
                     })
-                    .rounding(8.0)
+                    .corner_radius(8.0)
                     // inner_margin: Padding di dalam frame (15px semua sisi)
                     .inner_margin(15.0)
                     .show(ui, |ui| {

@@ -120,44 +120,25 @@ pub async fn upload_handler(
             filename: filename_clone.clone(),
         });
 
-        // Shared flag to stop the fake progress ticker
-        let is_processing = Arc::new(AtomicBool::new(true));
-        let is_processing_clone = is_processing.clone();
+        // 3. Process Logic with REAL Progress Reporting
+        // We capture event_bus to publish actual progress from the doc service
+        let eb_progress = event_bus.clone();
         
-        // Spawn Fake Progress Ticker (Simulated)
-        let eb_ticker = event_bus.clone();
-        let _filename_ticker = filename_clone.clone();
-        
-        tokio::spawn(async move {
-            let mut fake_progress = 0.0;
-            // Loop until processing is done, maxing out at 90%
-            while is_processing_clone.load(Ordering::Relaxed) && fake_progress < 90.0 {
-                fake_progress += 5.0; // Naik 5% setiap tick
-                if fake_progress > 90.0 { fake_progress = 90.0; }
-                
-                eb_ticker.publish(session_id, SystemEvent::ProcessingProgress { 
-                    document_id: doc_id, 
-                    progress: fake_progress, 
-                    message: format!("Processing... {:.0}%", fake_progress), 
-                    status_flag: "processing".to_string() 
-                });
-                
-                // Sleep 500ms
-                tokio::time::sleep(Duration::from_millis(500)).await;
-            }
-        });
-
-        // 3. Process Logic (Silent - No real progress reported to EventBus)
-        // We pass a dummy closure because we rely on the fake ticker for UI feedback
-        let on_progress_silent = |_, _, _, _| {
-             // Do nothing (Silent)
+        let on_progress_real = move |doc_id_cb: i32, progress: f64, message: String, status_flag: String| {
+            // Log for debug
+            // info!("Progress Update: Doc {}, {:.1}%, {}", doc_id_cb, progress * 100.0, message);
+            
+            // Publish to EventBus so frontend receives SSE
+            eb_progress.publish(session_id, SystemEvent::ProcessingProgress { 
+                document_id: doc_id, 
+                progress: progress * 100.0, // Scale 0.0-1.0 to 0-100
+                message: message, 
+                status_flag: status_flag 
+            });
         };
 
-        match doc_service.process_document_background(doc_id, file_type, file_data, on_progress_silent).await {
+        match doc_service.process_document_background(doc_id, file_type, file_data, on_progress_real).await {
             Ok((_, chunks_count)) => {
-                // Stop ticker
-                is_processing.store(false, Ordering::Relaxed);
-                
                 info!("Background processing completed for doc {}", doc_id);
                 // Immediately send 100%
                 event_bus.publish(session_id, SystemEvent::ProcessingCompleted { 
@@ -166,9 +147,6 @@ pub async fn upload_handler(
                 });
             }
             Err(e) => {
-                // Stop ticker
-                is_processing.store(false, Ordering::Relaxed);
-                
                 error!("Background processing failed for {}: {}", filename_clone, e);
                 // Update DB status to failed so it disappears from progress bar
                 let _ = repo_clone.upsert_document_processing_status(doc_id, "failed", 0.0, Some(e.to_string())).await;
