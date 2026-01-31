@@ -31,10 +31,12 @@ jobs:
       
       - name: Build release binary
         run: cargo build --release -p sfcore-ai-server
+        working-directory: sfcore-ai
         env:
           RUST_BACKTRACE: 1
       
       - name: Create release package
+        working-directory: sfcore-ai
         run: |
           mkdir release-package
           copy target\release\sfcore-ai-server.exe release-package\
@@ -47,7 +49,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sfcore-ai-server-windows-x64
-          path: release-package/
+          path: sfcore-ai/release-package/
           retention-days: 30
       
       - name: Display build info
