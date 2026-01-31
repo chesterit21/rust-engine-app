@@ -7,7 +7,7 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaChatMessage, LlamaModel, Special};
 use llama_cpp_2::sampling::LlamaSampler;
-use log::{info, warn, error};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use std::pin::pin;
@@ -86,6 +86,7 @@ impl LlamaCppEngine {
     pub fn load_gguf(&mut self, model_path: &str) -> Result<()> {
         let t0 = Instant::now();
         info!("loading GGUF model: {}", model_path);
+        
         let mut model_params = LlamaModelParams::default();
         if self.opts.use_mlock {
             model_params = model_params.with_use_mlock(true);
@@ -94,6 +95,7 @@ impl LlamaCppEngine {
         let model_params = pin!(model_params);
         let model = LlamaModel::load_from_file(&self.backend, model_path, &model_params)
             .with_context(|| format!("failed to load model: {}", model_path))?;
+        
         let load_ms = t0.elapsed().as_millis();
         info!("model loaded in {} ms", load_ms);
         self.model = Some(model);
@@ -136,9 +138,11 @@ impl LlamaCppEngine {
             .model
             .as_ref()
             .ok_or_else(|| anyhow!("model not loaded"))?;
+        
         let t_start = Instant::now();
+        info!("=== Generation Started ===");
 
-        // Create context
+        // ===== 1. CREATE CONTEXT =====
         let ctx_size = NonZeroU32::new(self.opts.context_length)
             .ok_or_else(|| anyhow!("context_length must be > 0"))?;
         
@@ -161,60 +165,80 @@ impl LlamaCppEngine {
             .new_context(&self.backend, ctx_params)
             .with_context(|| "failed to create context")?;
 
-        // Tokenize
+        // ===== 2. TOKENIZE PROMPT =====
         let tokens_list = model
             .str_to_token(prompt, AddBos::Always)
             .with_context(|| "failed to tokenize prompt")?;
         
         let n_prompt = tokens_list.len();
-        info!("prompt tokens: {}", n_prompt);
+        info!("Prompt tokens: {}", n_prompt);
 
-        if n_prompt + max_tokens as usize >= self.opts.context_length as usize {
+        // Validate total length
+        if n_prompt + max_tokens as usize > self.opts.context_length as usize {
             return Err(anyhow!(
-                "Total tokens ({} prompt + {} max) exceeds context {}",
-                n_prompt, max_tokens, self.opts.context_length
+                "Total tokens ({} prompt + {} max = {}) exceeds context {}",
+                n_prompt,
+                max_tokens,
+                n_prompt + max_tokens as usize,
+                self.opts.context_length
             ));
         }
 
-        // ✅ CRITICAL: Simplified chunked prefill
+        // ===== 3. CHUNKED PREFILL (CRITICAL FIX) =====
         let batch_size = self.opts.batch_size;
         let mut n_past = 0i32;
         
-        info!("prefill: {} tokens, batch_size={}", n_prompt, batch_size);
+        info!("Prefill: {} tokens in chunks of {}", n_prompt, batch_size);
 
         let mut token_idx = 0;
         while token_idx < n_prompt {
             let chunk_size = std::cmp::min(batch_size, n_prompt - token_idx);
             let chunk = &tokens_list[token_idx..token_idx + chunk_size];
             
+            debug!("Processing chunk {}-{} (size={})", token_idx, token_idx + chunk_size, chunk_size);
+            
+            // Create batch with proper size
             let mut batch = LlamaBatch::new(batch_size, 1);
             
-            // ✅ Add tokens to batch
-            // Only enable logits for LAST token of ENTIRE prompt
+            // ✅ CRITICAL FIX: Only enable logits for LAST token of ENTIRE prompt
+            let is_last_chunk = (token_idx + chunk_size) == n_prompt;
+            
             for (i, &token) in chunk.iter().enumerate() {
-                let is_last_token_overall = (token_idx + i) == (n_prompt - 1);
-                batch.add(token, n_past + i as i32, &[0], is_last_token_overall)?;
+                let pos = n_past + i as i32;
+                let is_last_token_in_chunk = i == (chunk_size - 1);
+                
+                // Only request logits for the very last token of the entire prompt
+                let need_logits = is_last_chunk && is_last_token_in_chunk;
+                
+                if let Err(e) = batch.add(token, pos, &[0], need_logits) {
+                    error!("Failed to add token {} to batch: {}", token, e);
+                    return Err(anyhow!("Batch add failed: {}", e));
+                }
             }
             
-            // Decode
-            ctx.decode(&mut batch).with_context(|| {
-                format!("prefill failed at tokens {}-{}", token_idx, token_idx + chunk_size)
-            })?;
+            // Decode this chunk with error handling
+            if let Err(e) = ctx.decode(&mut batch) {
+                error!("Prefill decode failed at chunk {}-{}: {}", 
+                       token_idx, token_idx + chunk_size, e);
+                return Err(anyhow!("Prefill decode failed at tokens {}-{}: {}", 
+                                  token_idx, token_idx + chunk_size, e));
+            }
             
             n_past += chunk_size as i32;
             token_idx += chunk_size;
         }
         
         let prefill_ms = t_start.elapsed().as_millis();
-        info!("prefill done: {} ms, n_past={}", prefill_ms, n_past);
+        info!("Prefill completed: {} ms, n_past={}", prefill_ms, n_past);
 
-        // ✅ Generation loop
+        // ===== 4. GENERATION LOOP (CRITICAL FIX) =====
         let mut n_decode = 0;
         let mut output = String::new();
         let t_gen_start = Instant::now();
         let mut first_token_time: Option<u128> = None;
         let mut decoder = encoding_rs::UTF_8.new_decoder();
 
+        // Create sampler with try-catch
         let mut sampler = LlamaSampler::chain_simple([
             LlamaSampler::penalties(
                 self.opts.repeat_last_n,
@@ -229,40 +253,72 @@ impl LlamaCppEngine {
             LlamaSampler::dist(self.opts.seed),
         ]);
 
+        info!("Starting generation loop (max_tokens={})", max_tokens);
+
         while n_decode < max_tokens {
+            // Check context limit
             if n_past >= self.opts.context_length as i32 {
-                warn!("Context full");
+                warn!("Context limit reached at {} tokens", n_past);
                 break;
             }
             
-            // ✅ Sample from last decoded position
-            let token = sampler.sample(&ctx, n_past - 1);
+            // ✅ CRITICAL FIX: Sample from index -1 (last token with logits)
+            // The previous batch had logits=true for the last token
+            let token = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                sampler.sample(&ctx, -1)
+            })) {
+                Ok(t) => t,
+                Err(e) => {
+                    error!("Sampling panic at n_decode={}, n_past={}: {:?}", n_decode, n_past, e);
+                    return Err(anyhow!("Sampling failed at token {}", n_decode));
+                }
+            };
+            
             sampler.accept(token);
 
+            // Record first token time
             if first_token_time.is_none() {
                 first_token_time = Some(t_start.elapsed().as_millis());
+                debug!("First token generated at {} ms", first_token_time.unwrap());
             }
 
+            // Check for end-of-generation
             if model.is_eog_token(token) {
-                info!("EOG token");
+                info!("EOG token detected at position {}", n_decode);
                 break;
             }
 
-            // Decode token
-            let output_bytes = model.token_to_bytes(token, Special::Tokenize)?;
+            // Decode token to string with error handling
+            let output_bytes = match model.token_to_bytes(token, Special::Tokenize) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    error!("Failed to decode token {}: {}", token, e);
+                    return Err(anyhow!("Token decode failed: {}", e));
+                }
+            };
+            
             let mut token_str = String::with_capacity(32);
             let _ = decoder.decode_to_string(&output_bytes, &mut token_str, false);
             output.push_str(&token_str);
 
+            // Call user callback
             if !callback(token_str) {
-                info!("Stopped by callback");
+                info!("Generation stopped by callback at token {}", n_decode);
                 break;
             }
 
-            // Add to context
+            // ✅ CRITICAL: Add next token to context with logits=true
             let mut batch = LlamaBatch::new(1, 1);
-            batch.add(token, n_past, &[0], true)?;
-            ctx.decode(&mut batch)?;
+            if let Err(e) = batch.add(token, n_past, &[0], true) {
+                error!("Failed to add generated token to batch: {}", e);
+                return Err(anyhow!("Batch add failed during generation: {}", e));
+            }
+            
+            // Decode with error handling
+            if let Err(e) = ctx.decode(&mut batch) {
+                error!("Decode failed at generation step {}: {}", n_decode, e);
+                return Err(anyhow!("Generation decode failed at token {}: {}", n_decode, e));
+            }
             
             n_past += 1;
             n_decode += 1;
@@ -276,7 +332,10 @@ impl LlamaCppEngine {
             0.0
         };
 
-        info!("done: {} tokens, {:.2} tok/s", n_decode, tokens_per_sec);
+        info!("=== Generation Complete ===");
+        info!("Tokens generated: {}", n_decode);
+        info!("Speed: {:.2} tok/s", tokens_per_sec);
+        info!("Total time: {} ms", total_ms);
 
         Ok(GenerationResult {
             output,

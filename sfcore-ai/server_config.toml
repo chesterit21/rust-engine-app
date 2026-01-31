@@ -2,11 +2,17 @@
 # SFCore AI Server Configuration
 
 # === Model Configuration ===
-model = "./models/QwenCoder-1.5b.gguf"
+model = "./models/Qwen3-0.6B-UD-Q5_K_XL.gguf"
+
+# === Model Type ===
+# Qwen3-0.6B-UD-Q5_K_XL
+# Qwen3-1.7B
+# QwenCoder
+# QwenCoder-1.5b
 
 # === Transport Mode ===
 # Options: "uds" | "http-sse" | "tcp"
-transport = "tcp"
+transport = "http-sse"
 
 # === Authentication ===
 [auth]
@@ -39,13 +45,13 @@ port = 8765
 
 [engine]
 # Context & Memory
-context_length = 32000        # -c, --ctx-size: Max context length
+context_length = 4096        # -c, --ctx-size: Max context length
 batch_size = 512              # --batch-size: Logical batch size for prompt processing
 ubatch_size = 256             # --ubatch-size: Physical batch size (per step)
 
 # Threading
-threads = 2                   # --threads: Decoding threads (50-75% cores)
-threads_batch = 2             # --threads-batch: Batch processing threads
+threads = 4                   # --threads: Decoding threads (50-75% cores)
+threads_batch = 4             # --threads-batch: Batch processing threads
 
 # Parallel Processing
 parallel = 1                  # --parallel: Number of parallel sequences (multi-request)

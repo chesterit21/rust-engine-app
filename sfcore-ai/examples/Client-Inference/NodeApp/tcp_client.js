@@ -86,8 +86,8 @@ rl.question('> ', (userInput) => {
                 '*- Pada ResultLog terdiri 4 Digit , misal 0832, ini berarti 2 Digit di bagian depan nya adalah 08, bagian 2 Digit inilah yang harus kamu prediksi bahwa tidak akan keluar di periode berikut nya' +
                 '*- Kamu harus percaya diri dalam memberikan jawaban list angka 2 Digit bagian depan nya, serta jangan ragu ' +
                 ' ' +
-                '### FORMAR OUTPUT' +
-                'List 2 Digit : [09,45,96,...] ' +
+                '### CONTOH FORMAT OUTPUT :' +
+                'List 2 Digit : [09,45,96,55,45,68,77,32,15,89] ' +
                 'Alasan : {berikan alasan mengapa angka tersebut tidak akan keluar} ' +
                 ' ' +
                 '### KONTEKS.' +
