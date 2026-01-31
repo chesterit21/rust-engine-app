@@ -1,0 +1,40 @@
+```
+└── 📁sfcore-ai
+    └── 📁.cargo
+        ├── config
+        ├── config.toml
+    └── 📁benches
+    └── 📁crates
+        └── 📁adapters
+        └── 📁cli
+        └── 📁engine
+        └── 📁localcached-cli
+        └── 📁localcached-client
+        └── 📁localcached-proto
+        └── 📁localcached-server
+        └── 📁rag-api-server
+        └── 📁rag-embedding-worker
+        └── 📁server
+        └── 📁sfcore-agent-app
+        └── 📁sso-api
+        └── 📁sso-core
+        └── 📁sso-infrastructure
+        └── 📁sso-security
+        └── 📁sso-shared
+        └── 📁game-matrix <------- ini kita akan membuat nya disini...
+    └── 📁examples
+    └── 📁models
+    └── 📁sfcore-client-app
+        └── 📁sso-client-app
+        └── 📁sso-server
+    └── 📁static
+    └── 📁target
+    ├── .env
+    ├── Cargo.lock
+    ├── Cargo.toml
+    ├── rust-toolchain.toml 
+    ├── server_config.toml
+    ├── server.log
+    ├── settings.toml
+    └── test_server.js
+```

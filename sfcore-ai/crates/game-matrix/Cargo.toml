@@ -1,0 +1,21 @@
+[package]
+name = "game-matrix"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Workspace deps (pakai workspace.dependencies biar konsisten)
+axum = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+sqlx = { workspace = true, features = ["sqlite"] }  # <-- penting: enable sqlite
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+# Internal deps (nanti bisa dipakai buat auth/logging)
+# sso-shared = { path = "../sso-shared" }

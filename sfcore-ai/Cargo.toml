@@ -25,6 +25,9 @@ members = [
     
     # RAG API Server
     # "crates/rag-api-server",
+    
+    # Game-Matrix Nex
+    # "crates/game-matrix",
 ]
 resolver = "2"
 
@@ -50,6 +53,7 @@ futures = "0.3"
 # Database
 sqlx = { version = "0.8", features = [
     "runtime-tokio-rustls",
+    "sqlite",
     "postgres",
     "uuid",
     "chrono",

@@ -64,7 +64,9 @@ mlock = true                  # Lock model in RAM (prevent swap)
 keep_tokens = -1              # --keep: Tokens to keep from prompt (-1 = all, 0 = none)
 
 # Sampling Defaults (dapat di-override per request)
-seed = 1234
+# Random seed = 0 (or remove this line to default to 1234)
+# Fixed seed = any other number (e.g. 1234)
+seed = 0 # -- rubah seed ke 1234 untuk jawaban yang sama, untuk pertanyaan yang sama..
 temperature = 0.5
 top_k = 40
 top_p = 0.9

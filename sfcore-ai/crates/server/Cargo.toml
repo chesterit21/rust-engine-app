@@ -3,37 +3,38 @@ name = "sfcore-ai-server"
 version = "0.1.0"
 edition = "2021"
 
+# ============================================================
+# Core Dependencies
+# ============================================================
 [dependencies]
-# Workspace dependencies
-tokio.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-anyhow.workspace = true
-thiserror.workspace = true
+anyhow        = "1"
+clap          = { version = "4", features = ["derive"] }
+log           = "0.4"
+env_logger    = "0.11"
+serde         = { version = "1", features = ["derive"] }
+serde_json    = "1"
+tokio         = { version = "1", features = ["full"] }
+toml          = "0.9"
 
-# Logging
-log = "0.4"
-env_logger = "0.11"
-
-# CLI
-clap = { version = "4.0", features = ["derive"] }
-
-# Config
-toml = "0.8"
-
-# HTTP Server (for http-sse transport)
-axum.workspace = true
-tower.workspace = true
-tower-http.workspace = true
-
-# Streaming
-tokio-stream = "0.1"
-
-# Rate Limiting
-dashmap = "6.0"
-
-# Internal dependencies
+# AI Engine (internal crate)
 sfcore-ai-engine = { path = "../engine" }
 
-# Allocator (optional but recommended for performance)
+# Web framework (HTTP-SSE transport)
+axum          = { version = "0.8", features = ["macros"] }
+tower-http    = { version = "0.6", features = ["cors", "trace"] }
+tokio-stream  = { version = "0.1", features = ["full"] }
+
+# Auth
+dashmap       = "6"
+
+# ============================================================
+# Platform-specific dependencies
+# ============================================================
+
+# Linux: Jemalloc for better memory performance
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.6"
+
+# Windows: Native Windows Service support
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8"

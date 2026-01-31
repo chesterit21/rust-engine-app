@@ -1,7 +1,7 @@
 //! TCP Transport Handler - Cross-platform (Linux, Windows, macOS, Android, etc.)
 
 use anyhow::Result;
-use log::{error, info};
+use log::info;
 use serde::{Deserialize, Serialize};
 use sfcore_ai_engine::{ChatMessage, LlamaCppEngine};
 use std::sync::Arc;
@@ -170,4 +170,3 @@ pub async fn handle_connection(mut stream: TcpStream, engine: Arc<LlamaCppEngine
     info!("[{}] Connection closed", peer_addr);
     Ok(())
 }
-

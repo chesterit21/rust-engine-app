@@ -15,6 +15,7 @@ sfcore-ai/models/
 .idea/
 *.swp
 
+db-migration-tools/
 # OS
 .DS_Store
 sfcore-ai/crates/rag-api-server/docs/Helpers/oprimzie-strict.md
