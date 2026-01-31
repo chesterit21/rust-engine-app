@@ -4,7 +4,12 @@ use serde::{Deserialize, Serialize};
 use sfcore_ai_engine::{LlamaCppEngine, ChatMessage};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixStream;
+
+// Handle non-unix platforms where UnixStream doesn't exist (e.g., Windows)
+#[cfg(not(unix))]
+type UnixStream = tokio::net::TcpStream; // Placeholder so the function signature compiles, though it won't be used for UDS on Windows
 use tokio::sync::mpsc;
 
 /// Request payload from Client

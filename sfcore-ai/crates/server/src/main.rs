@@ -41,10 +41,10 @@ mod windows_service_glue {
     use std::time::Duration;
 
     use windows_service::service::{
-        ControlAccepted, ServiceExitCode, ServiceState, ServiceStatus, ServiceType,
-        SimpleServiceControl, ServiceControlFlow,
+        ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType,
+        ServiceControlHandlerResult,
     };
-    use windows_service::{service_control_handler};
+    use windows_service::service_control_handler;
 
     pub const SERVICE_NAME: &str = "SFCoreAIService";
     pub const SERVICE_DISPLAY_NAME: &str = "SFCore AI Inference Server";
@@ -58,14 +58,14 @@ mod windows_service_glue {
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
 
         // Control handler: SCM kirim Stop → kita kirim shutdown signal
-        let control_handler = move |control: SimpleServiceControl| -> ServiceControlFlow {
+        let control_handler = move |control: ServiceControl| -> ServiceControlHandlerResult {
             match control {
-                SimpleServiceControl::Stop => {
+                ServiceControl::Stop => {
                     log::info!("[WinService] Received STOP signal");
                     let _ = shutdown_tx.send(());
-                    ServiceControlFlow::Continue
+                    ServiceControlHandlerResult::NoError
                 }
-                _ => ServiceControlFlow::Continue,
+                _ => ServiceControlHandlerResult::NoError,
             }
         };
 
@@ -78,7 +78,7 @@ mod windows_service_glue {
             .set_service_status(ServiceStatus {
                 service_type: ServiceType::OWN_PROCESS,
                 current_state: ServiceState::Running,
-                controls_accepted: ControlAccepted::STOP,
+                controls_accepted: ServiceControlAccept::STOP,
                 exit_code: ServiceExitCode::Win32(0),
                 checkpoint: 0,
                 wait_hint: Duration::from_secs(0),
@@ -105,7 +105,7 @@ mod windows_service_glue {
         let _ = status_handle.set_service_status(ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,
             current_state: ServiceState::Stopped,
-            controls_accepted: ControlAccepted::empty(),
+            controls_accepted: ServiceControlAccept::empty(),
             exit_code: ServiceExitCode::Win32(0),
             checkpoint: 0,
             wait_hint: Duration::from_secs(0),
@@ -218,8 +218,10 @@ struct Args {
 // ============================================================
 #[cfg(windows)]
 fn handle_windows_service_commands(args: &Args) -> Result<bool> {
-    use windows_service::service::{ServiceAccess, ServiceConfig, ServiceErrorControl, ServiceStartType, ServiceType};
-    use windows_service::service_manager::{ManagerAccess, ServiceManager};
+    use windows_service::service::{
+        ServiceAccess, ServiceErrorControl, ServiceStartType, ServiceType, ServiceInfo,
+    };
+    use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
     use windows_service_glue::{SERVICE_DESCRIPTION, SERVICE_DISPLAY_NAME, SERVICE_NAME};
 
     let is_service_cmd = args.install || args.remove || args.start || args.stop || args.service;
@@ -231,21 +233,27 @@ fn handle_windows_service_commands(args: &Args) -> Result<bool> {
     if args.install {
         let exe_path = std::env::current_exe().context("Failed to get current exe path")?;
 
-        let manager = ServiceManager::local_computer(None::<&str>, ManagerAccess::CONNECT | ManagerAccess::CREATE_SERVICE)
+        let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE)
             .context("Failed to connect to Service Manager")?;
 
+        let service_info = ServiceInfo {
+            name: SERVICE_NAME,
+            display_name: SERVICE_DISPLAY_NAME,
+            service_type: ServiceType::OWN_PROCESS,
+            start_type: ServiceStartType::AutoStart,
+            error_control: ServiceErrorControl::Normal,
+            executable_path: &exe_path,
+            launch_protected: windows_service::service::ServiceLaunchProtected::None,
+            dependencies: vec![],
+            load_order_group: None,
+            tag_id: None,
+            account_name: None,
+            password: None,
+            description: Some(SERVICE_DESCRIPTION.into()),
+        };
+
         manager
-            .create_service(ServiceConfig {
-                name: SERVICE_NAME.into(),
-                display_name: SERVICE_DISPLAY_NAME.into(),
-                service_type: ServiceType::OWN_PROCESS,
-                start_type: ServiceStartType::Auto,
-                error_control: ServiceErrorControl::Normal,
-                executable_path: exe_path.clone(),
-                dependencies: None,
-                account: None,
-                description: Some(SERVICE_DESCRIPTION.into()),
-            })
+            .create_service(service_info, ServiceAccess::all())
             .context("Failed to create service")?;
 
         info!("✅ Service '{}' installed", SERVICE_NAME);
@@ -257,7 +265,7 @@ fn handle_windows_service_commands(args: &Args) -> Result<bool> {
 
     // ---- REMOVE ----
     if args.remove {
-        let manager = ServiceManager::local_computer(None::<&str>, ManagerAccess::CONNECT)
+        let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
             .context("Failed to connect to Service Manager")?;
 
         let service = manager
@@ -271,21 +279,22 @@ fn handle_windows_service_commands(args: &Args) -> Result<bool> {
 
     // ---- START ----
     if args.start {
-        let manager = ServiceManager::local_computer(None::<&str>, ManagerAccess::CONNECT)
+        let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
             .context("Failed to connect to Service Manager")?;
 
         let service = manager
             .open_service(SERVICE_NAME, ServiceAccess::START)
             .context("Failed to open service")?;
 
-        service.start::<Vec<&str>>(&[]).context("Failed to start service")?;
+        let args: Vec<std::ffi::OsString> = Vec::new();
+        service.start(&args).context("Failed to start service")?;
         info!("✅ Service '{}' started", SERVICE_NAME);
         return Ok(true);
     }
 
     // ---- STOP ----
     if args.stop {
-        let manager = ServiceManager::local_computer(None::<&str>, ManagerAccess::CONNECT)
+        let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
             .context("Failed to connect to Service Manager")?;
 
         let service = manager
