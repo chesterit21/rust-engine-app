@@ -1,14 +1,14 @@
 [workspace]
 members = [
     # Existing AI/Inference Crates
-     "crates/engine",
+    # "crates/engine", 
     # "crates/cli",
-     "crates/server",
+    # "crates/server",
     # "crates/localcached-proto",
     # "crates/localcached-server",
     # "crates/localcached-client",
     # "crates/localcached-cli",
-    "crates/sfcore-agent-app",
+    # "crates/sfcore-agent-app",
 
     # SSO Fullstack Rust Crates
     # "crates/sso-core",
@@ -27,12 +27,17 @@ members = [
     # "crates/rag-api-server",
     
     # Game-Matrix Nex
-    # "crates/game-matrix",
-]
+    "crates/game-matrix",
+    "crates/game-models",
+    "crates/game-repository", 
+    "crates/game-update-log", 
+    
+    #"crates/sfcore-protm"
+    ]
 resolver = "2"
 
 #[patch.crates-io]
-llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }
+#llama-cpp-sys-2 = { path = "crates/patched/llama-cpp-sys-2" }
 
 # ============================================================================
 # SSO Workspace Dependencies
@@ -61,6 +66,8 @@ sqlx = { version = "0.8", features = [
     "macros",
     "json"
 ] }
+
+clap = { version = "4.5", features = ["derive"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

@@ -1,0 +1,50 @@
+// 1. Color System
+$primary:       #00ff41;  // Matrix Green
+$secondary:     #0d0d0d;  // Dark BG
+$success:       #00cc33;
+$info:          #008f11;
+$warning:       #ffcc00;
+$danger:        #ff0033;
+$light:         #f0f0f0;
+$dark:          #050505;
+
+// 2. Options
+$enable-shadows:              true;
+$enable-gradients:            true;
+$enable-negative-margins:     true;
+
+// 3. Body
+$body-bg:                   $dark;
+$body-color:                $light;
+
+// 4. Typography
+$font-family-base:            'Inter', system-ui, -apple-system, sans-serif;
+$headings-font-family:        'Inter', system-ui, -apple-system, sans-serif;
+$headings-font-weight:        700;
+
+// 5. Components
+$border-radius:               0.5rem;
+$border-radius-lg:            1rem;
+$border-radius-sm:            0.25rem;
+
+// Cards
+$card-bg:                     rgba(20, 20, 20, 0.7);
+$card-border-color:           rgba(255, 255, 255, 0.08);
+$card-cap-bg:                 transparent;
+
+// Inputs
+$input-bg:                    rgba(0, 0, 0, 0.4);
+$input-border-color:          rgba(255, 255, 255, 0.1);
+$input-color:                 $light;
+$input-focus-bg:              rgba(0, 0, 0, 0.6);
+$input-focus-border-color:    $primary;
+$input-focus-color:           $light;
+$input-placeholder-color:     rgba(255, 255, 255, 0.4);
+
+// Matrix specific variables (custom)
+$matrix-bg: #050505;
+$matrix-dark: #050505; // Alias for compatibility
+$matrix-green: #00ff41;
+$matrix-glow: rgba(0, 255, 65, 0.5);
+$glass-bg: rgba(20, 20, 20, 0.7);
+$glass-border: rgba(255, 255, 255, 0.08);

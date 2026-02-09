@@ -1,0 +1,39 @@
+// Import Custom Variables FIRST
+@import "styles/variables";
+
+// Import Bootstrap SCSS
+@import "bootstrap/scss/bootstrap";
+
+// Import Bootstrap Icons
+@import "bootstrap-icons/font/bootstrap-icons.css";
+
+// Custom styles
+:root {
+    --matrix-green: #{$matrix-green};
+    --matrix-dark: #{$matrix-dark};
+    --matrix-glow: #{$matrix-glow};
+    --glass-bg: #{$glass-bg};
+    --glass-border: #{$glass-border};
+}
+
+#app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+// Global scrollbar styling for Chrome/Edge/Safari
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: $dark; 
+}
+::-webkit-scrollbar-thumb {
+  background: #333; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: $primary; 
+}

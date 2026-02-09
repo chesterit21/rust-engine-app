@@ -1,0 +1,16 @@
+
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background-color: #02040a;
+  color: #E2E8F0;
+  font-family: 'Outfit', sans-serif;
+}
+
+button, a, [role="button"], input[type="submit"], input[type="button"], input[type="reset"] {
+  cursor: pointer !important;
+}
+

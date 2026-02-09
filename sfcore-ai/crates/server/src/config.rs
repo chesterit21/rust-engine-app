@@ -8,6 +8,7 @@ use std::fs;
 pub struct Config {
     pub model: Option<String>,
     pub transport: Option<String>,
+    pub is_embedding: Option<bool>,
     
     // Auth config
     pub auth: Option<AuthConfig>,

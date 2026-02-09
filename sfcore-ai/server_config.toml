@@ -4,6 +4,11 @@
 # === Model Configuration ===
 model = "./models/Qwen3-0.6B-UD-Q5_K_XL.gguf"
 
+# === Model Mode ===
+# Set to true for embedding models (e.g., nomic-embed, bge-m3)
+# Set to false for LLM/chat models (default)
+is_embedding = false
+
 # === Model Type ===
 # Qwen3-0.6B-UD-Q5_K_XL
 # Qwen3-1.7B

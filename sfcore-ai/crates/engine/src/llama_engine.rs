@@ -13,6 +13,9 @@ use std::num::NonZeroU32;
 use std::pin::pin;
 use std::time::Instant;
 
+// Flash attention types from llama.cpp (not re-exported from llama_cpp_2)
+const FLASH_ATTN_DISABLED: i32 = 0;
+
 /// Simple Chat Message struct for API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -102,6 +105,92 @@ impl LlamaCppEngine {
         Ok(())
     }
 
+    /// Load model specifically for embedding generation
+    pub fn load_gguf_embedding(&mut self, model_path: &str) -> Result<()> {
+        let t0 = Instant::now();
+        info!("loading GGUF embedding model: {}", model_path);
+        
+        let mut model_params = LlamaModelParams::default();
+        if self.opts.use_mlock {
+            model_params = model_params.with_use_mlock(true);
+        }
+
+        let model_params = pin!(model_params);
+        let model = LlamaModel::load_from_file(&self.backend, model_path, &model_params)
+            .with_context(|| format!("failed to load embedding model: {}", model_path))?;
+        
+        let load_ms = t0.elapsed().as_millis();
+        info!("embedding model loaded in {} ms", load_ms);
+        self.model = Some(model);
+        Ok(())
+    }
+
+    /// Generate embeddings for input text
+    pub fn get_embedding(&self, text: &str) -> Result<Vec<f32>> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| anyhow!("model not loaded"))?;
+
+        let t0 = Instant::now();
+        
+        // Create context with embeddings enabled
+        let ctx_size = NonZeroU32::new(self.opts.context_length)
+            .ok_or_else(|| anyhow!("context_length must be > 0"))?;
+        
+        let mut ctx_params = LlamaContextParams::default()
+            .with_n_ctx(Some(ctx_size))
+            .with_n_batch(self.opts.batch_size as u32)
+            .with_embeddings(true)  // Enable embeddings mode
+            .with_flash_attention_policy(FLASH_ATTN_DISABLED); // Disable flash attn for Windows compat
+
+        if let Some(threads) = self.opts.threads {
+            ctx_params = ctx_params.with_n_threads(threads);
+        }
+
+        let mut ctx = model
+            .new_context(&self.backend, ctx_params)
+            .with_context(|| "failed to create embedding context")?;
+
+        // Tokenize input
+        let tokens = model
+            .str_to_token(text, AddBos::Always)
+            .with_context(|| "failed to tokenize text for embedding")?;
+
+        let n_tokens = tokens.len();
+        info!("Embedding: {} tokens", n_tokens);
+
+        if n_tokens > self.opts.context_length as usize {
+            return Err(anyhow!(
+                "Text too long: {} tokens exceeds context {}",
+                n_tokens,
+                self.opts.context_length
+            ));
+        }
+
+        // Create batch for all tokens
+        let mut batch = LlamaBatch::new(n_tokens, 1);
+        for (i, &token) in tokens.iter().enumerate() {
+            batch.add(token, i as i32, &[0], i == n_tokens - 1)
+                .map_err(|e| anyhow!("Failed to add token to batch: {}", e))?;
+        }
+
+        // Decode to get embeddings
+        ctx.decode(&mut batch)
+            .with_context(|| "Failed to decode for embeddings")?;
+
+        // Get embeddings from the last token position
+        let embeddings = ctx.embeddings_seq_ith(0)
+            .with_context(|| "Failed to get embeddings")?;
+
+        let embed_vec: Vec<f32> = embeddings.to_vec();
+        
+        let elapsed_ms = t0.elapsed().as_millis();
+        info!("Embedding generated: {} dimensions in {} ms", embed_vec.len(), elapsed_ms);
+
+        Ok(embed_vec)
+    }
+
     pub fn apply_chat_template(&self, messages: &[ChatMessage]) -> Result<String> {
         let model = self
             .model
@@ -149,7 +238,8 @@ impl LlamaCppEngine {
         let mut ctx_params = LlamaContextParams::default()
             .with_n_ctx(Some(ctx_size))
             .with_n_batch(self.opts.batch_size as u32)
-            .with_n_ubatch(self.opts.ubatch_size as u32);
+            .with_n_ubatch(self.opts.ubatch_size as u32)
+            .with_flash_attention_policy(FLASH_ATTN_DISABLED); // Disable flash attn for Windows compat
 
         if let Some(threads) = self.opts.threads {
             ctx_params = ctx_params.with_n_threads(threads);
@@ -216,12 +306,25 @@ impl LlamaCppEngine {
                 }
             }
             
-            // Decode this chunk with error handling
-            if let Err(e) = ctx.decode(&mut batch) {
-                error!("Prefill decode failed at chunk {}-{}: {}", 
-                       token_idx, token_idx + chunk_size, e);
-                return Err(anyhow!("Prefill decode failed at tokens {}-{}: {}", 
-                                  token_idx, token_idx + chunk_size, e));
+            // Decode this chunk with error handling + panic catch
+            let decode_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ctx.decode(&mut batch)
+            }));
+            
+            match decode_result {
+                Ok(Ok(())) => { /* success */ }
+                Ok(Err(e)) => {
+                    error!("Prefill decode failed at chunk {}-{}: {}", 
+                           token_idx, token_idx + chunk_size, e);
+                    return Err(anyhow!("Prefill decode failed at tokens {}-{}: {}", 
+                                      token_idx, token_idx + chunk_size, e));
+                }
+                Err(panic_info) => {
+                    error!("Prefill decode PANIC at chunk {}-{}: {:?}", 
+                           token_idx, token_idx + chunk_size, panic_info);
+                    return Err(anyhow!("Prefill decode panicked at tokens {}-{}", 
+                                      token_idx, token_idx + chunk_size));
+                }
             }
             
             n_past += chunk_size as i32;

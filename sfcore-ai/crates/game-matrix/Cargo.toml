@@ -2,20 +2,36 @@
 name = "game-matrix"
 version = "0.1.0"
 edition = "2024"
+publish = false
+
+[[bin]]
+name = "game-matrix"
+path = "src/main.rs"
 
 [dependencies]
-# Workspace deps (pakai workspace.dependencies biar konsisten)
+# Workspace dependencies
 axum = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
-sqlx = { workspace = true, features = ["sqlite"] }  # <-- penting: enable sqlite
+sqlx = { workspace = true, features = ["sqlite"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
-uuid = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+tower-http = { workspace = true }
+tower = { workspace = true }
+dotenvy = { workspace = true }
 
-# Internal deps (nanti bisa dipakai buat auth/logging)
-# sso-shared = { path = "../sso-shared" }
+# Additional dependencies
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+
+# Internal crates
+game-models = { path = "../game-models" }
+game-repository = { path = "../game-repository" }
+
+# Validation
+validator = { workspace = true, features = ["derive"] }

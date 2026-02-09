@@ -42,9 +42,8 @@ mod windows_service_glue {
 
     use windows_service::service::{
         ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType,
-        ServiceControlHandlerResult,
     };
-    use windows_service::service_control_handler;
+    use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 
     pub const SERVICE_NAME: &str = "SFCoreAIService";
     pub const SERVICE_DISPLAY_NAME: &str = "SFCore AI Inference Server";
@@ -128,6 +127,10 @@ struct Args {
 
     #[arg(long)]
     transport: Option<String>,
+
+    /// Load model as embedding model instead of LLM
+    #[arg(long, help = "Load model as embedding model (for vector embeddings)")]
+    embedding: bool,
 
     // === Windows Service Management ===
     #[cfg(windows)]
@@ -218,11 +221,13 @@ struct Args {
 // ============================================================
 #[cfg(windows)]
 fn handle_windows_service_commands(args: &Args) -> Result<bool> {
+    use std::ffi::OsString;
+    use std::path::PathBuf;
     use windows_service::service::{
         ServiceAccess, ServiceErrorControl, ServiceStartType, ServiceType, ServiceInfo,
     };
     use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
-    use windows_service_glue::{SERVICE_DESCRIPTION, SERVICE_DISPLAY_NAME, SERVICE_NAME};
+    use windows_service_glue::{SERVICE_DISPLAY_NAME, SERVICE_NAME};
 
     let is_service_cmd = args.install || args.remove || args.start || args.stop || args.service;
     if !is_service_cmd {
@@ -237,23 +242,20 @@ fn handle_windows_service_commands(args: &Args) -> Result<bool> {
             .context("Failed to connect to Service Manager")?;
 
         let service_info = ServiceInfo {
-            name: SERVICE_NAME,
-            display_name: SERVICE_DISPLAY_NAME,
+            name: OsString::from(SERVICE_NAME),
+            display_name: OsString::from(SERVICE_DISPLAY_NAME),
             service_type: ServiceType::OWN_PROCESS,
             start_type: ServiceStartType::AutoStart,
             error_control: ServiceErrorControl::Normal,
-            executable_path: &exe_path,
-            launch_protected: windows_service::service::ServiceLaunchProtected::None,
+            executable_path: PathBuf::from(&exe_path),
+            launch_arguments: vec![],
             dependencies: vec![],
-            load_order_group: None,
-            tag_id: None,
             account_name: None,
-            password: None,
-            description: Some(SERVICE_DESCRIPTION.into()),
+            account_password: None,
         };
 
         manager
-            .create_service(service_info, ServiceAccess::all())
+            .create_service(&service_info, ServiceAccess::all())
             .context("Failed to create service")?;
 
         info!("✅ Service '{}' installed", SERVICE_NAME);
@@ -389,6 +391,9 @@ async fn run_server_async() -> Result<()> {
 
     let opts = build_engine_options(&args, &config);
 
+    // Determine if we're loading an embedding model
+    let is_embedding = args.embedding || config.is_embedding.unwrap_or(false);
+
     info!("=== Engine Configuration ===");
     info!("Context Length : {}", opts.context_length);
     info!("Batch / UBatch : {} / {}", opts.batch_size, opts.ubatch_size);
@@ -396,10 +401,19 @@ async fn run_server_async() -> Result<()> {
     info!("mlock          : {}", opts.use_mlock);
     info!("no_cache_prompt: {}", opts.no_cache_prompt);
     info!("Temp / TopK / TopP / MinP: {} / {} / {} / {}", opts.temperature, opts.top_k, opts.top_p, opts.min_p);
+    info!("Model Mode     : {}", if is_embedding { "EMBEDDING" } else { "LLM" });
     info!("===========================");
 
     let mut engine = LlamaCppEngine::new(opts)?;
-    engine.load_gguf(&model_path)?;
+    
+    if is_embedding {
+        info!("🔗 Loading embedding model...");
+        engine.load_gguf_embedding(&model_path)?;
+    } else {
+        info!("💬 Loading LLM model...");
+        engine.load_gguf(&model_path)?;
+    }
+    
     let engine = Arc::new(engine);
 
     match transport.as_str() {

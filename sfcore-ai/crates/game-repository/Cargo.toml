@@ -1,0 +1,15 @@
+[package]
+name = "game-repository"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+# Workspace dependencies
+sqlx = { workspace = true, features = ["sqlite"] }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+
+# Internal dependencies
+game-models = { path = "../game-models" }
